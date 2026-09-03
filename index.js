@@ -13,7 +13,7 @@ const regularFont = new Font(FONT_NAME, 11);
 const smallFont = new Font(FONT_NAME, 9);
 const regularColor = Color.white();
 
-const BASE_URL = 'https://api.lunchmoney.dev/v2/';
+const BASE_URL = 'https://api.lunchmoney.dev/v2';
 
 const local = FileManager.local();
 const iCloud = FileManager.iCloud();
@@ -118,7 +118,9 @@ async function lunchMoneyLeftoverInfo() {
   const url = `${BASE_URL}/summary`;
   params = getStartAndEndDateForPayCycle();
   try {
+    log("here");
     const response = await sendLunchMoneyRequest(url, params);
+    log("there");
     return response.transactions.length;
   } catch (e) {
     console.error(e);
@@ -154,7 +156,7 @@ function sendHTTPRequest(url, params, headers, method = 'GET') {
   const request = new Request(url + query);
   request.headers = headers;
   request.method = method;
-  
+  log(request);
   return request.loadJSON();
 }
 
