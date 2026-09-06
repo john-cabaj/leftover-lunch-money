@@ -40,8 +40,8 @@ const USE_PAY_CYCLE = args.widgetParameter != null;
 // Per-widget-family appearance. undefined covers running in the app/preview.
 const FAMILY_LAYOUTS = {
   small:      { layout: "stacked", caption: 11, inflowAmount: 20, leftoverAmount: 25 },
-  medium:     { layout: "review", header: true, caption: 12, amount: 28, leftoverAmount: 34, detailFont: 10, payeeLen: 24, maxUnreviewed: 3, columnWidth: 145, rightColumnWidth: 168 },
-  large:      { layout: "overview", header: true, caption: 14, amount: 30, metricWidth: 120, detailFont: 12, payeeLen: 26, maxUnreviewed: 7 },
+  medium:     { layout: "review", header: true, caption: 12, amount: 28, leftoverAmount: 34, detailFont: 10, payeeLen: 24, maxUnreviewed: 3, metricsWeight: 46 },
+  large:      { layout: "overview", header: true, caption: 14, amount: 30, detailFont: 12, payeeLen: 30, maxUnreviewed: 7 },
   extraLarge: { layout: "breakdown", header: true, caption: 15, amount: 46, detailFont: 11 },
   undefined:  { layout: "stacked", caption: 11, inflowAmount: 20, leftoverAmount: 25 }
 };
@@ -562,24 +562,21 @@ function addStackedMetrics(mainStack, data, config) {
   addAmount(mainStack, data.savings, config.leftoverAmount);
 }
 
-// Inflow / Leftover / Outflow across the width as three columns
+// Inflow / Leftover / Outflow across the width as three equal columns that scale
 function addMetricRow(parent, data, config) {
   const row = parent.addStack();
   row.layoutHorizontally();
-  row.addSpacer();
   addMetricColumn(row, "Inflow", Math.abs(data.inflow), config);
-  row.addSpacer();
   addMetricColumn(row, "Leftover", data.savings, config);
-  row.addSpacer();
   addMetricColumn(row, "Outflow", data.outflow, config);
-  row.addSpacer();
 }
 
-// One metric column; the fixed width lets WidgetKit scale instead of wrapping
+// One metric column; layoutWeight divides the row equally so it scales across sizes
 function addMetricColumn(parentRow, label, value, config) {
   const col = parentRow.addStack();
   col.layoutVertically();
-  col.size = new Size(config.metricWidth || 0, 0);
+  col.layoutWeight = 1;
+  col.spacing = 2;
 
   const labelRow = col.addStack();
   labelRow.layoutHorizontally();
@@ -610,11 +607,14 @@ function addOverview(mainStack, data, config) {
   addMetricRow(mainStack, data, config);
   mainStack.addSpacer(14);
   addCaption(mainStack, "Unreviewed", config.caption);
+  const list = mainStack.addStack();
+  list.layoutVertically();
+  list.layoutWeight = 1;
   const items = (data.unreviewed || []).slice(0, config.maxUnreviewed || 7);
   if (items.length === 0) {
-    addUnreviewedEmpty(mainStack, data.unreviewedDiag, config);
+    addUnreviewedEmpty(list, data.unreviewedDiag, config);
   } else {
-    items.forEach((t) => addTransactionRow(mainStack, t, config));
+    items.forEach((t) => addTransactionRow(list, t, config));
   }
 }
 
@@ -625,7 +625,7 @@ function addReviewSplit(mainStack, data, config) {
 
   const left = row.addStack();
   left.layoutVertically();
-  left.size = new Size(config.columnWidth || 140, 0);
+  left.layoutWeight = config.metricsWeight || 46;
   addCaption(left, "Inflow", config.caption);
   addAmount(left, Math.abs(data.inflow), config.amount, regularColor);
   addCaption(left, "Outflow", config.caption);
@@ -636,7 +636,7 @@ function addReviewSplit(mainStack, data, config) {
 
   const right = row.addStack();
   right.layoutVertically();
-  right.size = new Size(config.rightColumnWidth || 157, 0);
+  right.layoutWeight = 100 - (config.metricsWeight || 46);
   addCaption(right, "Unreviewed", config.caption);
   const items = (data.unreviewed || []).slice(0, config.maxUnreviewed || 4);
   if (items.length === 0) {
@@ -671,10 +671,12 @@ function addTransactionRow(parent, t, config) {
   payee.textColor = regularColor;
   payee.lineLimit = 1;
   top.addSpacer();
-  const amount = top.addText(formatMoney(t.amount));
+  // Inflows show a "+" in green, outflows a "-" in red
+  const isInflow = t.amount >= 0;
+  const amount = top.addText((isInflow ? "+" : "-") + formatMoney(Math.abs(t.amount)));
   amount.font = new Font(FONT_NAME, fontSize);
   amount.lineLimit = 1;
-  amount.textColor = t.amount < 0 ? new Color(LOSS_RED) : regularColor;
+  amount.textColor = isInflow ? new Color(BRAND_GREEN) : new Color(LOSS_RED);
 
   const stamp = block.addText(t.date);
   stamp.font = new Font(FONT_NAME, Math.max(7, fontSize - 2));
