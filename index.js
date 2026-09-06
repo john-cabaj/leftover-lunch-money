@@ -103,7 +103,7 @@ async function getWidget() {
   const mainStack = widget.addStack();
   mainStack.layoutVertically();
   mainStack.spacing = 2;
-  mainStack.url = DEFAULT_URL;
+  widget.url = DEFAULT_URL;
   renderWidget(mainStack, lunchMoneyData, FAMILY_LAYOUTS[widgetFamily] || FAMILY_LAYOUTS.undefined);
 
   return widget;
