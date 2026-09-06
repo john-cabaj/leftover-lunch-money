@@ -205,8 +205,8 @@ async function fetchUnreviewedTransactions(range) {
       ...range,
       status: "unreviewed"
     });
-    // Keep grouped transactions out; pending ones are unreviewed by definition
-    return (data && data.transactions || [])
+    const raw = (data && data.transactions) || [];
+    const rows = raw
       .filter((t) => !t.is_group_parent && !t.is_group)
       .sort((a, b) => (b.date === a.date
         ? (b.created_at || "").localeCompare(a.created_at || "")
@@ -216,8 +216,14 @@ async function fetchUnreviewedTransactions(range) {
         amount: t.to_base != null ? t.to_base : parseFloat(t.amount),
         date: t.date
       }));
+    if (raw.length === 0) {
+      console.log(`[unreviewed] none for ${range.start_date}..${range.end_date}; response: ${JSON.stringify(data).slice(0, 300)}`);
+    } else {
+      console.log(`[unreviewed] fetched ${raw.length}, kept ${rows.length}`);
+    }
+    return rows;
   } catch (e) {
-    console.error(e);
+    console.error(`[unreviewed] request failed: ${e}`);
     return [];
   }
 }
