@@ -40,7 +40,7 @@ const USE_PAY_CYCLE = args.widgetParameter != null;
 // Per-widget-family appearance. undefined covers running in the app/preview.
 const FAMILY_LAYOUTS = {
   small:      { layout: "stacked", caption: 11, inflowAmount: 20, leftoverAmount: 25 },
-  medium:     { layout: "review", header: true, caption: 12, amount: 28, leftoverAmount: 34, detailFont: 10, payeeLen: 20, maxUnreviewed: 3, columnWidth: 140, rightColumnWidth: 157 },
+  medium:     { layout: "review", header: true, caption: 12, amount: 28, leftoverAmount: 34, detailFont: 10, payeeLen: 24, maxUnreviewed: 3, columnWidth: 145, rightColumnWidth: 168 },
   large:      { layout: "overview", header: true, caption: 14, amount: 30, metricWidth: 120, detailFont: 12, payeeLen: 26, maxUnreviewed: 7 },
   extraLarge: { layout: "breakdown", header: true, caption: 15, amount: 46, detailFont: 11 },
   undefined:  { layout: "stacked", caption: 11, inflowAmount: 20, leftoverAmount: 25 }
@@ -68,7 +68,7 @@ Script.complete();
 async function getWidget() {
   const widget = new ListWidget();
   widget.title = "Lunch Money";
-  widget.setPadding(16, 16, 16, 16);
+  widget.setPadding(14, 8, 14, 8);
   widget.backgroundGradient = getLinearGradient(COLORS.bg1, COLORS.bg2);
 
   const widgetFamily = config.widgetFamily;
@@ -672,7 +672,7 @@ function addTransactionRow(parent, t, config) {
   payee.lineLimit = 1;
   top.addSpacer();
   const amount = top.addText(formatMoney(t.amount));
-  amount.font = new Font("Menlo-Bold", fontSize);
+  amount.font = new Font(FONT_NAME, fontSize);
   amount.lineLimit = 1;
   amount.minimumScaleFactor = 0.5;
   amount.textColor = t.amount < 0 ? new Color(LOSS_RED) : regularColor;
