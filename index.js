@@ -191,37 +191,34 @@ async function lunchMoneyLeftoverInfo() {
       sendLunchMoneyRequest(`${BASE_URL}/categories`)
     ]);
     const result = computeLeftover(summary, categories);
-    if (!config.widgetFamily && result) {
-      console.log("Leftover summary:", JSON.stringify(result));
-      console.log("raw totals:", JSON.stringify(summary.totals));
-      const infoMap = buildCategoryInfo(categories);
-      console.log("category detail:",
-        JSON.stringify(
-          summary.categories
-            .filter((entry) => {
-              return !(infoMap[entry.category_id] || {}).isIncome;
-            })
-            .map((entry) => {
-              const info = categoryInfo[entry.category_id] || {};
-              const initialBudget = entry.totals.budgeted;
-              const activity = (entry.totals.other_activity || 0) + (entry.totals.recurring_activity || 0);
-              const rollover = entry.rollover_pool ? (entry.rollover_pool.budgeted_to_base || 0) : 0;
-              const available = entry.totals.available != null
-                ? entry.totals.available
-                : (initialBudget + rollover - activity);
-              return {
-                id: entry.category_id,
-                budgeted: initialBudget,
-                other_activity: entry.totals.other_activity,
-                recurring_activity: entry.totals.recurring_activity,
-                rollover,
-                available,
-                contribution: available >= 0 ? initialBudget : (initialBudget - available)
-              };
-            })
-        )
-      );
-    }
+    console.log("Leftover summary:", JSON.stringify(result));
+    console.log("raw totals:", JSON.stringify(summary.totals));
+    const infoMap = buildCategoryInfo(categories);
+    console.log("category detail:",
+      JSON.stringify(
+        summary.categories
+          .filter((entry) => {
+            return !(infoMap[entry.category_id] || {}).isIncome;
+          })
+          .map((entry) => {
+            const initialBudget = entry.totals.budgeted;
+            const activity = (entry.totals.other_activity || 0) + (entry.totals.recurring_activity || 0);
+            const rollover = entry.rollover_pool ? (entry.rollover_pool.budgeted_to_base || 0) : 0;
+            const available = entry.totals.available != null
+              ? entry.totals.available
+              : (initialBudget + rollover - activity);
+            return {
+              id: entry.category_id,
+              budgeted: initialBudget,
+              other_activity: entry.totals.other_activity,
+              recurring_activity: entry.totals.recurring_activity,
+              rollover,
+              available,
+              contribution: available >= 0 ? initialBudget : (initialBudget - available)
+            };
+          })
+      )
+    );
     return result;
   } catch (e) {
     console.error(e);
