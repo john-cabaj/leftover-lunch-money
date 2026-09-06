@@ -7,21 +7,36 @@ const COLORS = {
   bg2: '#282A2E'
 };
 
-// BRAND_GREEN: positive amounts; BRAND_YELLOW: captions/labels; LOSS_RED: negative leftover
+// BRAND_GREEN: positive amounts / title; BRAND_YELLOW: captions/labels;
+// LOSS_RED: negative leftover
 const BRAND_GREEN = '#44958C';
 const BRAND_YELLOW = '#FBB700';
 const LOSS_RED = '#E15554';
 
 // Monospace typography for a terminal feel; white is the default text color
 const FONT_NAME = "Menlo";
+const FONT_BOLD = "Menlo-Bold";
 const regularFont = new Font(FONT_NAME, 11);
 const smallFont = new Font(FONT_NAME, 9);
 const regularColor = Color.white();
 
+// Reusable color objects so layout helpers don't rebuild them every frame
+const brandGreen = new Color(BRAND_GREEN);
+const brandYellow = new Color(BRAND_YELLOW);
+const lossRed = new Color(LOSS_RED);
+// iOS system green / red flags income (+) vs expenses (-) in a transaction row
+const incomeGreen = new Color('#34C759');
+const expenseRed = new Color('#FF3B30');
+
+// Font factories so every stack shares the same typography
+function font(size) { return new Font(FONT_NAME, size); }
+function boldFont(size) { return new Font(FONT_BOLD, size); }
+
 // Lunch Money API base URL
 const BASE_URL = 'https://api.lunchmoney.dev/v2';
 
-// Tap targets: open the Lunch Money app via its URL scheme
+// Tap targets: the default (widget) opens the transactions list; the metrics
+// and unreviewed regions override it with their own targets
 const BUDGET_URL = "lunchmoney://budget";
 const UNREVIEWED_URL = "lunchmoney://transactions?status=unreviewed&include_pending=true";
 const DEFAULT_URL = "lunchmoney://transactions";
@@ -42,13 +57,14 @@ const MONTHS = ["January", "February", "March", "April", "May", "June", "July", 
 // Setting a widget parameter switches the header to "CURRENT PAY CYCLE"
 const USE_PAY_CYCLE = args.widgetParameter != null;
 
-// Per-widget-family appearance. undefined covers running in the app/preview.
+// Per-widget-family styling. small and the in-app preview share a layout.
+const smallLayout = { layout: "stacked", caption: 11, inflowAmount: 20, leftoverAmount: 25 };
 const FAMILY_LAYOUTS = {
-  small:      { layout: "stacked", caption: 11, inflowAmount: 20, leftoverAmount: 25 },
+  small:      smallLayout,
   medium:     { layout: "review", header: true, caption: 12, amount: 28, leftoverAmount: 34, detailFont: 10, payeeLen: 24, maxUnreviewed: 3, metricsWeight: 46 },
   large:      { layout: "overview", header: true, caption: 14, amount: 30, detailFont: 12, payeeLen: 30, maxUnreviewed: 7 },
   extraLarge: { layout: "breakdown", header: true, caption: 15, amount: 46, detailFont: 11 },
-  undefined:  { layout: "stacked", caption: 11, inflowAmount: 20, leftoverAmount: 25 }
+  undefined:  smallLayout
 };
 
 /****************************************************
@@ -109,21 +125,11 @@ async function getWidget() {
   return widget;
 };
 
-// Centered "Leftover" caption plus the given message
+// "Leftover" caption plus the given error message, centered
 function addErrorState(widget, message) {
-  const mainStack = widget.addStack();
-  mainStack.layoutVertically();
+  addCaption(widget, "Leftover", 11);
 
-  const captionStack = mainStack.addStack();
-  captionStack.layoutHorizontally();
-  captionStack.addSpacer();
-  const caption = captionStack.addText("Leftover");
-  caption.font = new Font(FONT_NAME, 11);
-  caption.textColor = new Color(BRAND_YELLOW);
-  caption.centerAlignText();
-  captionStack.addSpacer();
-
-  const messageStack = mainStack.addStack();
+  const messageStack = widget.addStack();
   messageStack.layoutHorizontally();
   messageStack.addSpacer();
   const messageText = messageStack.addText(message);
@@ -151,7 +157,7 @@ async function getAllData() {
 }
 
 /****************************************************
-             UI FUNCTIONS
+             UI HELPERS
 *****************************************************/
 
 // Two-stop top-to-bottom gradient for the widget background
@@ -303,7 +309,8 @@ function categoryRows(summary, categories) {
     }
   }
 
-  // Filter out double-counted rows, then shape each into a clean row object
+  // Filter out double-counted rows, then shape each into a clean row object.
+  // The contribution is derived from the same figure the row already computes.
   return rows
     .filter((entry) => shouldCountEntry(entry, info[entry.category_id] || {}, groupedBudgeted, groupHasBudgetedChildren))
     .map((entry) => {
@@ -313,13 +320,18 @@ function categoryRows(summary, categories) {
       const available = entry.totals.available != null
         ? entry.totals.available
         : (initialBudget != null ? initialBudget + rollover - activity : null);
+      // Budgeted categories spend at most their budget; over-budget categories spend the
+      // full original budget plus the overspend. Unbudgeted categories spend their activity.
+      const contribution = initialBudget == null
+        ? activity
+        : (available >= 0 ? initialBudget : initialBudget - available);
       return {
         name: names[entry.category_id] || entry.category_id,
         initialBudget,
         activity,
         rollover,
         available,
-        contribution: categoryContribution(entry)
+        contribution
       };
     });
 }
@@ -340,30 +352,17 @@ function computeLeftover(summary, categories) {
   };
 }
 
-// A child row counts only when its group's budget is actually held at the children level;
+// A child row counts only when its group's budget is actually held at the group level;
 // a group row counts only when it carries its own budget and no children do
 function shouldCountEntry(entry, info, groupedBudgeted, groupHasBudgetedChildren) {
   if (info.groupId != null) {
-    return groupedBudgeted[info.groupId] && !groupHasBudgetedChildren[info.groupId] ? false : true;
+    return !(groupedBudgeted[info.groupId] && !groupHasBudgetedChildren[info.groupId]);
   }
   if (info.isGroup) {
     if (entry.totals.budgeted == null) return false;
     if (groupHasBudgetedChildren[entry.category_id]) return false;
   }
   return true;
-}
-
-// Budgeted categories spend at most their budget; over-budget categories spend the full
-// original budget plus the overspend. Unbudgeted categories spend their activity.
-function categoryContribution(entry) {
-  const activity = (entry.totals.other_activity || 0) + (entry.totals.recurring_activity || 0);
-  const initialBudget = entry.totals.budgeted;
-  if (initialBudget == null) return activity;
-  const rollover = entry.rollover_pool ? (entry.rollover_pool.budgeted_to_base || 0) : 0;
-  const available = entry.totals.available != null
-    ? entry.totals.available
-    : (initialBudget + rollover - activity);
-  return (available >= 0) ? initialBudget : (initialBudget - available);
 }
 
 // Inflow is derived from the summary's inflow breakdown fields
@@ -377,7 +376,7 @@ function totalFromBreakdown(breakdown) {
 }
 
 /****************************************************
-            Utilities
+             Utilities
 *****************************************************/
 
 // "$847.22" / "-$1,428.47" style formatting (sign preserved, thousands grouping)
@@ -412,9 +411,6 @@ function addBudgetPeriod(date, settings, count) {
       case "week":
         d.setDate(d.getDate() + 7);
         break;
-      case "month":
-        addMonthsClamped(d, 1);
-        break;
       case "year":
         d.setFullYear(d.getFullYear() + 1);
         if (d.getMonth() !== date.getMonth()) d.setDate(0);
@@ -422,7 +418,7 @@ function addBudgetPeriod(date, settings, count) {
       case "twice a month":
         d.setDate(d.getDate() + 15);
         break;
-      default:
+      default: // "month" and any unexpected value behave as months
         addMonthsClamped(d, 1);
     }
   }
@@ -482,7 +478,7 @@ function getCalendarMonthRange() {
 }
 
 /****************************************************
-            Storage
+             Storage
 *****************************************************/
 
 // Reads the cached result JSON; TTL-gated unless allowStale is set (offline fallback)
@@ -525,7 +521,7 @@ function writeCache(data) {
 }
 
 /****************************************************
-            Widget Layouts
+             Widget Layouts
 *****************************************************/
 
 // Top-level renderer: picks stacked / review / overview / breakdown layouts
@@ -546,34 +542,34 @@ function renderWidget(mainStack, data, config) {
       addOverview(mainStack, data, config);
       mainStack.addSpacer();
       break;
-    default:
-      addHeader(mainStack);
-      mainStack.addSpacer(6);
-      const budget = mainStack.addStack();
-      budget.layoutVertically();
-      budget.url = BUDGET_URL;
-      addCaption(budget, "Leftover", config.caption);
-      addAmount(budget, data.savings, config.amount);
-      budget.addSpacer(10);
-      addBreakdown(budget, data, config.detailFont);
-      mainStack.addSpacer();
+    default: // breakdown / extraLarge
+      addBreakdownLayout(mainStack, data, config);
       break;
   }
 }
 
-// Inflow / Outflow / Leftover stacked vertically (small, in-app preview);
-// the whole section spans the widget and opens the Budget page
+// extraLarge: Leftover summary plus Inflow / Outflow detail lines; taps open Budget
+function addBreakdownLayout(mainStack, data, config) {
+  addHeader(mainStack);
+  mainStack.addSpacer(6);
+  const budget = mainStack.addStack();
+  budget.layoutVertically();
+  budget.url = BUDGET_URL;
+  addCaption(budget, "Leftover", config.caption);
+  addAmount(budget, data.savings, config.amount);
+  budget.addSpacer(10);
+  addBreakdown(budget, data, config.detailFont);
+  mainStack.addSpacer();
+}
+
+// Inflow / Outflow / Leftover stacked vertically (small, in-app preview).
+// The stack fills the whole widget so any tap opens Budget.
 function addStackedMetrics(parent, data, config) {
   const stack = parent.addStack();
   stack.layoutVertically();
   stack.layoutWeight = 1;
   stack.url = BUDGET_URL;
-  addCaption(stack, "Inflow", config.caption);
-  addAmount(stack, Math.abs(data.inflow), config.inflowAmount, regularColor);
-  addCaption(stack, "Outflow", config.caption);
-  addAmount(stack, data.outflow, config.inflowAmount, regularColor);
-  addCaption(stack, "Leftover", config.caption);
-  addAmount(stack, data.savings, config.leftoverAmount);
+  addMetrics(stack, data, config, config.inflowAmount, config.leftoverAmount);
 }
 
 // Inflow / Leftover / Outflow across the width as three equal columns that scale
@@ -592,29 +588,9 @@ function addMetricColumn(parentRow, label, value, config) {
   col.layoutVertically();
   col.layoutWeight = 1;
   col.spacing = 2;
-
-  const labelRow = col.addStack();
-  labelRow.layoutHorizontally();
-  labelRow.addSpacer();
-  const labelText = labelRow.addText(label);
-  labelText.font = new Font(FONT_NAME, config.caption);
-  labelText.textColor = new Color(BRAND_YELLOW);
-  labelText.centerAlignText();
-  labelRow.addSpacer();
-
-  const valueRow = col.addStack();
-  valueRow.layoutHorizontally();
-  valueRow.addSpacer();
-  const valueText = valueRow.addText(formatMoney(value));
-  valueText.font = new Font("Menlo-Bold", config.amount);
-  valueText.lineLimit = 1;
-  valueText.minimumScaleFactor = 0.5;
-  // Leftover is green when positive, red when negative; other metrics stay white
-  valueText.textColor = label === "Leftover"
-    ? (value < 0 ? new Color(LOSS_RED) : new Color(BRAND_GREEN))
-    : regularColor;
-  valueText.centerAlignText();
-  valueRow.addSpacer();
+  addCaption(col, label, config.caption);
+  // Leftover colors by sign, other metrics stay white
+  addAmount(col, value, config.amount, label === "Leftover" ? undefined : regularColor);
 }
 
 // Large layout: metric columns across the width plus the unreviewed list below
@@ -627,12 +603,7 @@ function addOverview(mainStack, data, config) {
   list.layoutVertically();
   list.layoutWeight = 1;
   list.url = UNREVIEWED_URL;
-  const items = (data.unreviewed || []).slice(0, config.maxUnreviewed || 7);
-  if (items.length === 0) {
-    addUnreviewedEmpty(list, data.unreviewedDiag, config);
-  } else {
-    items.forEach((t) => addTransactionRow(list, t, config));
-  }
+  addUnreviewedItems(list, data, config);
 }
 
 // Medium layout: metrics top-aligned on the left, unreviewed transactions on the right
@@ -644,12 +615,7 @@ function addReviewSplit(mainStack, data, config) {
   left.layoutVertically();
   left.layoutWeight = config.metricsWeight || 46;
   left.url = BUDGET_URL;
-  addCaption(left, "Inflow", config.caption);
-  addAmount(left, Math.abs(data.inflow), config.amount, regularColor);
-  addCaption(left, "Outflow", config.caption);
-  addAmount(left, data.outflow, config.amount, regularColor);
-  addCaption(left, "Leftover", config.caption);
-  addAmount(left, data.savings, config.leftoverAmount || config.amount);
+  addMetrics(left, data, config, config.amount, config.leftoverAmount || config.amount);
   left.addSpacer();
 
   const right = row.addStack();
@@ -657,20 +623,35 @@ function addReviewSplit(mainStack, data, config) {
   right.layoutWeight = 100 - (config.metricsWeight || 46);
   right.url = UNREVIEWED_URL;
   addCaption(right, "Unreviewed", config.caption);
-  const items = (data.unreviewed || []).slice(0, config.maxUnreviewed || 4);
-  if (items.length === 0) {
-    addUnreviewedEmpty(right, data.unreviewedDiag, config);
-  } else {
-    items.forEach((t) => addTransactionRow(right, t, config));
-  }
+  addUnreviewedItems(right, data, config);
   right.addSpacer();
+}
+
+// Inflow / Outflow / Leftover rows, sharing one badge + amount style
+function addMetrics(parent, data, config, amountSize, leftoverSize) {
+  addCaption(parent, "Inflow", config.caption);
+  addAmount(parent, Math.abs(data.inflow), amountSize, regularColor);
+  addCaption(parent, "Outflow", config.caption);
+  addAmount(parent, data.outflow, amountSize, regularColor);
+  addCaption(parent, "Leftover", config.caption);
+  addAmount(parent, data.savings, leftoverSize);
+}
+
+// Transaction rows up to the family limit, or an inline empty/diagnostic notice
+function addUnreviewedItems(parent, data, config) {
+  const items = (data.unreviewed || []).slice(0, config.maxUnreviewed || 7);
+  if (items.length === 0) {
+    addUnreviewedEmpty(parent, data.unreviewedDiag, config);
+  } else {
+    items.forEach((t) => addTransactionRow(parent, t, config));
+  }
 }
 
 // Unreviewed section fallback; shows inline diagnostics when nothing was fetched
 function addUnreviewedEmpty(parent, diag, config) {
   const text = diag ? diag : "None";
   const empty = parent.addText(text);
-  empty.font = new Font(FONT_NAME, Math.max(7, (config.detailFont || 9) - 2));
+  empty.font = font(Math.max(7, (config.detailFont || 9) - 2));
   empty.textColor = regularColor;
   empty.textOpacity = diag ? 0.8 : 0.6;
   empty.lineLimit = 3;
@@ -686,7 +667,7 @@ function addTransactionRow(parent, t, config) {
   top.layoutHorizontally();
   const fontSize = config.detailFont || 9;
   const payee = top.addText(clip(t.payee, config.payeeLen || 16));
-  payee.font = new Font(FONT_NAME, fontSize);
+  payee.font = font(fontSize);
   payee.textColor = regularColor;
   payee.lineLimit = 1;
   top.addSpacer();
@@ -694,12 +675,12 @@ function addTransactionRow(parent, t, config) {
   // get a "-" in red, income a "+" in regular green
   const isInflow = t.amount < 0;
   const amount = top.addText((isInflow ? "+" : "-") + formatMoney(Math.abs(t.amount)));
-  amount.font = new Font(FONT_NAME, fontSize);
+  amount.font = font(fontSize);
   amount.lineLimit = 1;
-  amount.textColor = isInflow ? new Color('#34C759') : new Color('#FF3B30');
+  amount.textColor = isInflow ? incomeGreen : expenseRed;
 
   const stamp = block.addText(t.date);
-  stamp.font = new Font(FONT_NAME, Math.max(7, fontSize - 2));
+  stamp.font = font(Math.max(7, fontSize - 2));
   stamp.textColor = regularColor;
   stamp.textOpacity = 0.5;
 
@@ -717,9 +698,9 @@ function addHeader(mainStack) {
   const titleRow = mainStack.addStack();
   titleRow.layoutHorizontally();
   titleRow.addSpacer();
-  const title = titleRow.addText("LUNCH MONEY v13");
+  const title = titleRow.addText("LUNCH MONEY v14");
   title.font = Font.boldSystemFont(12);
-  title.textColor = new Color(BRAND_GREEN);
+  title.textColor = brandGreen;
   title.centerAlignText();
   titleRow.addSpacer();
 
@@ -745,8 +726,8 @@ function addCaption(mainStack, text, size) {
   row.layoutHorizontally();
   row.addSpacer();
   const caption = row.addText(text);
-  caption.font = new Font(FONT_NAME, size);
-  caption.textColor = new Color(BRAND_YELLOW);
+  caption.font = font(size);
+  caption.textColor = brandYellow;
   caption.centerAlignText();
   row.addSpacer();
 }
@@ -757,10 +738,10 @@ function addAmount(mainStack, value, size, colorOverride) {
   row.layoutHorizontally();
   row.addSpacer();
   const amount = row.addText(formatMoney(value));
-  amount.font = new Font("Menlo-Bold", size);
+  amount.font = boldFont(size);
   amount.lineLimit = 1;
   amount.minimumScaleFactor = 0.5;
-  amount.textColor = colorOverride || (value < 0 ? new Color(LOSS_RED) : new Color(BRAND_GREEN));
+  amount.textColor = colorOverride || (value < 0 ? lossRed : brandGreen);
   amount.centerAlignText();
   row.addSpacer();
 }
@@ -776,12 +757,12 @@ function addDetailRow(mainStack, label, value, detailFont) {
   const row = mainStack.addStack();
   row.layoutHorizontally();
   const labelText = row.addText(label);
-  labelText.font = new Font(FONT_NAME, detailFont || 9);
+  labelText.font = font(detailFont || 9);
   labelText.textColor = regularColor;
   labelText.textOpacity = 0.6;
   row.addSpacer(8);
   const valueText = row.addText(formatMoney(value));
-  valueText.font = new Font(FONT_NAME, detailFont || 9);
+  valueText.font = font(detailFont || 9);
   valueText.lineLimit = 1;
   valueText.minimumScaleFactor = 0.5;
   valueText.textColor = regularColor;
