@@ -10,8 +10,6 @@ const BRAND_GREEN = '#44958C';
 const BRAND_YELLOW = '#FBB700';
 const LOSS_RED = '#E15554';
 
-let DEBUG_LINES = [];
-
 const FONT_NAME = "Menlo";
 const regularFont = new Font(FONT_NAME, 11);
 const smallFont = new Font(FONT_NAME, 9);
@@ -84,19 +82,6 @@ async function getWidget() {
     return widget;
   }
 
-  if (!widgetFamily && DEBUG_LINES.length) {
-    const debugStack = widget.addStack();
-    debugStack.layoutVertically();
-    debugStack.spacing = 1;
-    for (const line of DEBUG_LINES) {
-      const t = debugStack.addText(line);
-      t.font = new Font(FONT_NAME, 8);
-      t.textColor = regularColor;
-      t.textOpacity = 0.9;
-    }
-    return widget;
-  }
-
   const mainStack = widget.addStack();
   mainStack.layoutVertically();
   mainStack.spacing = 2;
@@ -130,8 +115,7 @@ function addErrorState(widget, message) {
 }
 
 async function getAllData() {
-  const debugRun = !config.widgetFamily;
-  const cached = debugRun ? null : cache.get(CACHE_KEY, CACHED_MS);
+  const cached = cache.get(CACHE_KEY, CACHED_MS);
   if (cached) {
     return JSON.parse(cached);
   }
@@ -200,10 +184,6 @@ async function lunchMoneyLeftoverInfo() {
       sendLunchMoneyRequest(`${BASE_URL}/categories`)
     ]);
     const result = computeLeftover(summary, categories);
-    console.log("Leftover summary: " + JSON.stringify(result));
-    console.log("raw totals: " + JSON.stringify(summary.totals));
-    DEBUG_LINES = buildCategoryDebugLines(summary, categories, result);
-    DEBUG_LINES.forEach((line) => console.log("category detail: " + line));
     return result;
   } catch (e) {
     console.error(e);
@@ -222,7 +202,6 @@ function sendLunchMoneyRequest(url, params = {}) {
   const request = new Request(url + query);
   request.headers = headers;
   request.method = 'GET';
-  log(request);
   return request.loadJSON();
 }
 
@@ -290,16 +269,6 @@ function computeLeftover(summary, categories) {
     outflow,
     savings: inflow - outflow
   };
-}
-
-function buildCategoryDebugLines(summary, categories, result) {
-  const lines = [
-    `INFLOW ${formatMoney(result ? result.inflow : 0)} OUTFLOW ${formatMoney(result ? result.outflow : 0)} LEFTOVER ${formatMoney(result ? result.savings : 0)}`
-  ];
-  for (const row of categoryRows(summary, categories)) {
-    lines.push(`${row.name} | bud ${row.initialBudget == null ? "-" : row.initialBudget} spend ${row.activity.toFixed(2)} avail ${row.available == null ? "-" : row.available.toFixed(2)} roll ${row.rollover.toFixed(2)} | contrib ${formatMoney(row.contribution)}`);
-  }
-  return lines;
 }
 
 function shouldCountEntry(entry, info, groupedBudgeted, groupHasBudgetedChildren) {
