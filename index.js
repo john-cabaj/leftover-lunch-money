@@ -324,11 +324,12 @@ function totalFromBreakdown(breakdown) {
             Utilities
 *****************************************************/
 
-// "$847.22" / "-$1428.47" style formatting (sign preserved, no thousands grouping)
+// "$847.22" / "-$1,428.47" style formatting (sign preserved, thousands grouping)
 function formatMoney(value) {
   if (!isFinite(value)) return "$0.00";
-  const abs = Math.abs(value).toFixed(2);
-  return (value < 0 ? "-" : "") + "$" + abs;
+  const [whole, dec] = Math.abs(value).toFixed(2).split(".");
+  const grouped = whole.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  return (value < 0 ? "-" : "") + "$" + grouped + "." + dec;
 }
 
 // YYYY-MM-DD for the API
