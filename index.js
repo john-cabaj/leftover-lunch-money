@@ -18,7 +18,7 @@ const regularColor = Color.white();
 const BASE_URL = 'https://api.lunchmoney.dev/v2';
 
 const BASE_FILE = 'LunchMoneyWidget';
-const API_FILE = "apiKey";
+const API_KEY = "lunchMoneyApiKey";
 const CACHE_KEY = "lunchMoneyCache_v2";
 const CACHED_MS = 600000; // 10 minutes
 
@@ -41,8 +41,6 @@ const FAMILY_LAYOUTS = {
              SETUP
 *****************************************************/
 
-const Layout = initLayout();
-const cache = new Cache();
 const LM_ACCESS_TOKEN = await getApiKey();
 const widget = await getWidget();
 
@@ -85,7 +83,7 @@ async function getWidget() {
   const mainStack = widget.addStack();
   mainStack.layoutVertically();
   mainStack.spacing = 2;
-  Layout[widgetFamily](mainStack, lunchMoneyData);
+  renderWidget(mainStack, lunchMoneyData, FAMILY_LAYOUTS[widgetFamily] || FAMILY_LAYOUTS.undefined);
 
   return widget;
 };
@@ -115,21 +113,18 @@ function addErrorState(widget, message) {
 }
 
 async function getAllData() {
-  const cached = cache.get(CACHE_KEY, CACHED_MS);
-  if (cached) {
-    return JSON.parse(cached);
-  }
+  const fresh = readCache();
+  if (fresh) return fresh;
 
   const data = await lunchMoneyLeftoverInfo();
 
-  // if not internet connection load data from cache
-  if (!data) {
-    const forced = cache.forceGet(CACHE_KEY);
-    return forced ? JSON.parse(forced) : null;
+  if (data) {
+    writeCache(data);
+    return data;
   }
 
-  cache.set(CACHE_KEY, JSON.stringify(data));
-  return data;
+  // no connection: fall back to stale cache
+  return readCache(true);
 }
 
 /****************************************************
@@ -148,10 +143,8 @@ function getLinearGradient(color1, color2) {
 *****************************************************/
 
 async function getApiKey() {
-  const keyLocation = BASE_FILE + "/" + API_FILE;
-  if (doesFileExist(keyLocation)) {
-    const key = await readString(keyLocation);
-    if (key) return key;
+  if (Keychain.contains(API_KEY)) {
+    return Keychain.get(API_KEY);
   }
   const alert = new Alert();
   alert.addSecureTextField("api_key", "");
@@ -163,10 +156,9 @@ async function getApiKey() {
   const apiKey = alert.textFieldValue(0);
 
   if (apiKey) {
-    saveToFile(apiKey, API_FILE);
-    return apiKey;
+    Keychain.set(API_KEY, apiKey);
   }
-  return null;
+  return apiKey;
 }
 
 async function lunchMoneyLeftoverInfo() {
@@ -410,71 +402,33 @@ function getLastMonthRange() {
 }
 
 /****************************************************
-            File Management
+            Storage
 *****************************************************/
 
-function saveToFile(content, key) {
+function readCache(allowStale) {
+  const fm = FileManager.local();
+  const path = fm.documentsDirectory() + "/" + BASE_FILE + "/" + CACHE_KEY;
+  try {
+    const raw = fm.readString(path);
+    if (raw && (allowStale || Date.now() - fm.modificationDate(path) <= CACHED_MS)) {
+      return JSON.parse(raw);
+    }
+  } catch (e) {
+    return null;
+  }
+  return null;
+}
+
+function writeCache(data) {
   const fm = FileManager.local();
   const folder = fm.documentsDirectory() + "/" + BASE_FILE;
   fm.createDirectory(folder, true);
-  fm.writeString(folder + "/" + key, content);
-}
-
-async function readString(keyLocation) {
-  const fm = FileManager.local();
-  return fm.readString(fm.documentsDirectory() + "/" + keyLocation);
-}
-
-function doesFileExist(keyLocation) {
-  const fm = FileManager.local();
-  return fm.fileExists(fm.documentsDirectory() + "/" + keyLocation);
-}
-
-function Cache() {
-  const fileManager = FileManager.local();
-  const documentsDirectory = fileManager.documentsDirectory();
-
-  const read = (key) => fileManager.readString(documentsDirectory + "/" + BASE_FILE + "/" + key);
-
-  const set = (key, content) => {
-    const folder = documentsDirectory + "/" + BASE_FILE;
-    fileManager.createDirectory(folder, true);
-    fileManager.writeString(folder + "/" + key, content);
-  };
-
-  const get = (key, cutOffTimeInMs) => {
-    const cacheFilePath = documentsDirectory + "/" + BASE_FILE + "/" + key;
-    const cacheCutOffDate = new Date(Date.now() - cutOffTimeInMs);
-    try {
-      return fileManager.modificationDate(cacheFilePath) > cacheCutOffDate ? read(key) : null;
-    } catch (e) {
-      return null;
-    }
-  };
-
-  const forceGet = (key) => {
-    try {
-      return read(key);
-    } catch (e) {
-      return null;
-    }
-  };
-
-  return { set, get, forceGet };
+  fm.writeString(folder + "/" + CACHE_KEY, JSON.stringify(data));
 }
 
 /****************************************************
             Widget Layouts
 *****************************************************/
-
-function initLayout() {
-  let Layout = {};
-  for (const family of Object.keys(FAMILY_LAYOUTS)) {
-    const config = FAMILY_LAYOUTS[family];
-    Layout[family] = (mainStack, lunchMoneyData) => renderWidget(mainStack, lunchMoneyData, config);
-  }
-  return Layout;
-}
 
 function renderWidget(mainStack, data, config) {
   switch (config.layout) {
