@@ -3,9 +3,7 @@
 *****************************************************/
 const COLORS = {
   bg1: '#1D1F21',
-  bg2: '#282A2E',
-  error1: '#800000',
-  error2: '#080000'
+  bg2: '#282A2E'
 };
 
 const BRAND_GREEN = '#44958C';
@@ -14,15 +12,12 @@ const LOSS_RED = '#E15554';
 
 let DEBUG_LINES = [];
 
-const FONT_NAME = "Menlo"
+const FONT_NAME = "Menlo";
 const regularFont = new Font(FONT_NAME, 11);
 const smallFont = new Font(FONT_NAME, 9);
 const regularColor = Color.white();
 
 const BASE_URL = 'https://api.lunchmoney.dev/v2';
-
-const local = FileManager.local();
-const iCloud = FileManager.iCloud();
 
 const BASE_FILE = 'LunchMoneyWidget';
 const API_FILE = "apiKey";
@@ -32,11 +27,9 @@ const CACHED_MS = 600000; // 10 minutes
 // TEMPORARY: set to false and it returns to the current budget period
 const TEMP_SHOW_LAST_MONTH = true;
 
-const LOCAL = "local";
 const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 
-const USE_PAY_CYCLE = args.widgetParameter != null
-const PAY_CYCLE_ID = args.widgetParameter;
+const USE_PAY_CYCLE = args.widgetParameter != null;
 
 const FAMILY_LAYOUTS = {
   small:      { layout: "stacked", caption: 11, inflowAmount: 20, leftoverAmount: 25 },
@@ -47,11 +40,11 @@ const FAMILY_LAYOUTS = {
 };
 
 /****************************************************
- SETUP
- *****************************************************/
+             SETUP
+*****************************************************/
 
 const Layout = initLayout();
-const cache = new Cache("iCloud");
+const cache = new Cache();
 const LM_ACCESS_TOKEN = await getApiKey();
 const widget = await getWidget();
 
@@ -87,7 +80,7 @@ async function getWidget() {
   }
 
   if (errorMessage) {
-    addErrorState(widget, widgetFamily, errorMessage);
+    addErrorState(widget, errorMessage);
     return widget;
   }
 
@@ -112,7 +105,7 @@ async function getWidget() {
   return widget;
 };
 
-function addErrorState(widget, widgetFamily, message) {
+function addErrorState(widget, message) {
   const mainStack = widget.addStack();
   mainStack.layoutVertically();
 
@@ -142,15 +135,15 @@ async function getAllData() {
   if (cached) {
     return JSON.parse(cached);
   }
-  
+
   const data = await lunchMoneyLeftoverInfo();
 
   // if not internet connection load data from cache
-  if(!data){
+  if (!data) {
     const forced = cache.forceGet(CACHE_KEY);
     return forced ? JSON.parse(forced) : null;
   }
-  
+
   cache.set(CACHE_KEY, JSON.stringify(data));
   return data;
 }
@@ -159,22 +152,21 @@ async function getAllData() {
              UI FUNCTIONS
 *****************************************************/
 
-function getLinearGradient(color1, color2) {  
-  const gradient = new LinearGradient();       
+function getLinearGradient(color1, color2) {
+  const gradient = new LinearGradient();
   gradient.colors = [new Color(color1), new Color(color2)];
   gradient.locations = [0.0, 1.0];
   return gradient;
 };
 
 /****************************************************
-            API
+             API
 *****************************************************/
 
 async function getApiKey() {
   const keyLocation = BASE_FILE + "/" + API_FILE;
-  const exists = doesFileExist(keyLocation);
-  if (exists) {
-    const key = await readString(keyLocation, exists);
+  if (doesFileExist(keyLocation)) {
+    const key = await readString(keyLocation);
     if (key) return key;
   }
   const alert = new Alert();
@@ -183,7 +175,7 @@ async function getApiKey() {
   alert.title = "Lunch Money API Key";
   alert.message = "Please enter your lunch money API key, found at https://my.lunchmoney.app/developers";
 
-  const option = await alert.present();
+  await alert.present();
   const apiKey = alert.textFieldValue(0);
 
   if (apiKey) {
@@ -202,9 +194,7 @@ async function lunchMoneyLeftoverInfo() {
     const range = TEMP_SHOW_LAST_MONTH
       ? getLastMonthRange()
       : (getCurrentBudgetPeriod(settings) || getCalendarMonthRange());
-    const params = range;
-    params.include_totals = true;
-    params.include_rollover_pool = true;
+    const params = { ...range, include_totals: true, include_rollover_pool: true };
     const [summary, categories] = await Promise.all([
       sendLunchMoneyRequest(`${BASE_URL}/summary`, params),
       sendLunchMoneyRequest(`${BASE_URL}/categories`)
@@ -221,47 +211,70 @@ async function lunchMoneyLeftoverInfo() {
   }
 }
 
-function buildCategoryDebugLines(summary, categories, result) {
-  const lines = [];
-  lines.push(`INFLOW ${formatMoney(result ? result.inflow : 0)} OUTFLOW ${formatMoney(result ? result.outflow : 0)} LEFTOVER ${formatMoney(result ? result.savings : 0)}`);
-  const infoMap = buildCategoryInfo(categories);
-  const nameById = buildNameMap(categories);
-  const groupedBudgeted = {};
-  const groupHasBudgetedChildren = {};
-  for (const entry of summary.categories) {
-    const info = infoMap[entry.category_id] || {};
-    if (info.isGroup && entry.totals.budgeted != null) {
-      groupedBudgeted[entry.category_id] = true;
-    } else if (info.groupId != null && entry.totals.budgeted != null) {
-      groupHasBudgetedChildren[info.groupId] = true;
-    }
-  }
-  for (const entry of summary.categories) {
-    const info = infoMap[entry.category_id] || {};
-    if (info.isIncome) continue;
-    if (!shouldCountEntry(entry, info, groupedBudgeted, groupHasBudgetedChildren)) continue;
-    const initialBudget = entry.totals.budgeted;
-    const activity = (entry.totals.other_activity || 0) + (entry.totals.recurring_activity || 0);
-    const rollover = entry.rollover_pool ? (entry.rollover_pool.budgeted_to_base || 0) : 0;
-    const available = entry.totals.available != null
-      ? entry.totals.available
-      : (initialBudget != null ? initialBudget + rollover - activity : null);
-    const contribution = categoryContribution(entry);
-    lines.push(`${nameById[entry.category_id] || entry.category_id} | bud ${initialBudget == null ? "-" : initialBudget} spend ${activity.toFixed(2)} avail ${available == null ? "-" : available.toFixed(2)} roll ${rollover.toFixed(2)} | contrib ${formatMoney(contribution)}`);
-  }
-  return lines;
+function sendLunchMoneyRequest(url, params = {}) {
+  const headers = {
+    'Authorization': LM_ACCESS_TOKEN.includes("Bearer") ? LM_ACCESS_TOKEN : `Bearer ${LM_ACCESS_TOKEN}`,
+    'Content-Type': 'application/json'
+  };
+  const query = Object.keys(params).length > 0
+    ? '?' + Object.entries(params).map(([key, value]) => `${key}=${value}`).join('&')
+    : '';
+  const request = new Request(url + query);
+  request.headers = headers;
+  request.method = 'GET';
+  log(request);
+  return request.loadJSON();
 }
 
-function buildNameMap(categories) {
-  const map = {};
+/****************************************************
+             Leftover Calculation
+*****************************************************/
+
+function categoryRows(summary, categories) {
+  const info = {};
+  const names = {};
   const add = (category) => {
-    map[category.id] = category.name;
-    if (Array.isArray(category.children)) {
-      category.children.forEach(add);
-    }
+    info[category.id] = {
+      isIncome: category.is_income,
+      isGroup: !!category.is_group,
+      groupId: category.group_id != null ? category.group_id : null
+    };
+    names[category.id] = category.name;
+    if (Array.isArray(category.children)) category.children.forEach(add);
   };
   (categories.categories || []).forEach(add);
-  return map;
+
+  const rows = (summary.categories || []).filter((entry) => !(info[entry.category_id] || {}).isIncome);
+
+  const groupedBudgeted = {};
+  const groupHasBudgetedChildren = {};
+  for (const entry of rows) {
+    const c = info[entry.category_id] || {};
+    if (c.isGroup && entry.totals.budgeted != null) {
+      groupedBudgeted[entry.category_id] = true;
+    } else if (c.groupId != null && entry.totals.budgeted != null) {
+      groupHasBudgetedChildren[c.groupId] = true;
+    }
+  }
+
+  return rows
+    .filter((entry) => shouldCountEntry(entry, info[entry.category_id] || {}, groupedBudgeted, groupHasBudgetedChildren))
+    .map((entry) => {
+      const initialBudget = entry.totals.budgeted;
+      const activity = (entry.totals.other_activity || 0) + (entry.totals.recurring_activity || 0);
+      const rollover = entry.rollover_pool ? (entry.rollover_pool.budgeted_to_base || 0) : 0;
+      const available = entry.totals.available != null
+        ? entry.totals.available
+        : (initialBudget != null ? initialBudget + rollover - activity : null);
+      return {
+        name: names[entry.category_id] || entry.category_id,
+        initialBudget,
+        activity,
+        rollover,
+        available,
+        contribution: categoryContribution(entry)
+      };
+    });
 }
 
 function computeLeftover(summary, categories) {
@@ -270,44 +283,28 @@ function computeLeftover(summary, categories) {
   }
 
   const inflow = Math.abs(totalFromBreakdown(summary.totals && summary.totals.inflow));
-  const categoryInfo = buildCategoryInfo(categories);
+  const outflow = categoryRows(summary, categories).reduce((sum, row) => sum + row.contribution, 0);
 
-  const rows = summary.categories.filter((entry) => {
-    const info = categoryInfo[entry.category_id] || {};
-    return !info.isIncome;
-  });
-
-  const groupedBudgeted = {};
-  const groupHasBudgetedChildren = {};
-  for (const entry of rows) {
-    const info = categoryInfo[entry.category_id] || {};
-    if (info.isGroup && entry.totals.budgeted != null) {
-      groupedBudgeted[entry.category_id] = true;
-    } else if (info.groupId != null && entry.totals.budgeted != null) {
-      groupHasBudgetedChildren[info.groupId] = true;
-    }
-  }
-
-  let outflow = 0;
-  for (const entry of rows) {
-    const info = categoryInfo[entry.category_id] || {};
-    if (!shouldCountEntry(entry, info, groupedBudgeted, groupHasBudgetedChildren)) continue;
-
-    outflow += categoryContribution(entry);
-  }
-
-  const leftover = inflow - outflow;
   return {
     inflow,
     outflow,
-    savings: leftover
+    savings: inflow - outflow
   };
+}
+
+function buildCategoryDebugLines(summary, categories, result) {
+  const lines = [
+    `INFLOW ${formatMoney(result ? result.inflow : 0)} OUTFLOW ${formatMoney(result ? result.outflow : 0)} LEFTOVER ${formatMoney(result ? result.savings : 0)}`
+  ];
+  for (const row of categoryRows(summary, categories)) {
+    lines.push(`${row.name} | bud ${row.initialBudget == null ? "-" : row.initialBudget} spend ${row.activity.toFixed(2)} avail ${row.available == null ? "-" : row.available.toFixed(2)} roll ${row.rollover.toFixed(2)} | contrib ${formatMoney(row.contribution)}`);
+  }
+  return lines;
 }
 
 function shouldCountEntry(entry, info, groupedBudgeted, groupHasBudgetedChildren) {
   if (info.groupId != null) {
-    if (groupedBudgeted[info.groupId] && !groupHasBudgetedChildren[info.groupId]) return false;
-    return true;
+    return groupedBudgeted[info.groupId] && !groupHasBudgetedChildren[info.groupId] ? false : true;
   }
   if (info.isGroup) {
     if (entry.totals.budgeted == null) return false;
@@ -329,58 +326,11 @@ function categoryContribution(entry) {
 
 function totalFromBreakdown(breakdown) {
   if (!breakdown) return 0;
-  return Math.abs(breakdown.other_activity || 0)
-       + Math.abs(breakdown.recurring_activity || 0)
-       + Math.abs(breakdown.recurring_remaining || 0)
-       + Math.abs(breakdown.uncategorized || 0);
-}
-
-function buildCategoryInfo(categories) {
-  const info = {};
-  const add = (category) => {
-    info[category.id] = {
-      isIncome: category.is_income,
-      isGroup: !!category.is_group,
-      groupId: category.group_id != null ? category.group_id : null
-    };
-    if (Array.isArray(category.children)) {
-      category.children.forEach(add);
-    }
-  };
-  (categories.categories || []).forEach(add);
-  return info;
-}
-
-function sendLunchMoneyRequest(url, params = {}) {
-  var headers;
-  if(LM_ACCESS_TOKEN.includes("Bearer")){
-    headers = {
-      'Authorization': LM_ACCESS_TOKEN,
-      'Content-Type': 'application/json'
-    };
+  let total = 0;
+  for (const key of ["other_activity", "recurring_activity", "recurring_remaining", "uncategorized"]) {
+    total += Math.abs(breakdown[key] || 0);
   }
-  else{
-    headers = {
-      'Authorization': `Bearer ${LM_ACCESS_TOKEN}`,
-      'Content-Type': 'application/json'
-    };
-  }
-
-  return sendHTTPRequest(url, params, headers);
-}
-
-function sendHTTPRequest(url, params, headers, method = 'GET') {
-  let query = ``;
-  Object.keys(params).forEach((key, i) => {
-    const value = params[key];
-    query += i === 0 ? '?' : '&';
-    query += `${key}=${value}`;
-  });
-  const request = new Request(url + query);
-  request.headers = headers;
-  request.method = method;
-  log(request);
-  return request.loadJSON();
+  return total;
 }
 
 /****************************************************
@@ -394,9 +344,7 @@ function formatMoney(value) {
 }
 
 function formatDateString(date) {
-  const month = date.getMonth() + 1;
-  const day = date.getDate();
-  return `${date.getFullYear()}-${month < 10 ? "0" + month : month}-${day < 10 ? "0" + day : day}`;
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 }
 
 function parseIsoDate(value) {
@@ -408,8 +356,7 @@ function addBudgetPeriod(date, settings, count) {
   const d = new Date(date.getTime());
   const quantity = settings.budget_period_quantity || 1;
   const granularity = settings.budget_period_granularity || "month";
-  const units = quantity * count;
-  for (let i = 0; i < units; i++) {
+  for (let i = 0; i < quantity * count; i++) {
     switch (granularity) {
       case "day":
         d.setDate(d.getDate() + 1);
@@ -475,92 +422,74 @@ function getCurrentBudgetPeriod(settings) {
   };
 }
 
-function getCalendarMonthRange() {
+function monthRange(monthOffset) {
   const now = new Date();
-  const start = new Date(now.getFullYear(), now.getMonth(), 1);
-  const end = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+  const start = new Date(now.getFullYear(), now.getMonth() + monthOffset, 1);
+  const end = new Date(now.getFullYear(), now.getMonth() + monthOffset + 1, 0);
   return {
     start_date: formatDateString(start),
     end_date: formatDateString(end)
   };
 }
 
+function getCalendarMonthRange() {
+  return monthRange(0);
+}
+
 function getLastMonthRange() {
-  const now = new Date();
-  const start = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-  const end = new Date(now.getFullYear(), now.getMonth(), 0);
-  return {
-    start_date: formatDateString(start),
-    end_date: formatDateString(end)
-  };
+  return monthRange(-1);
 }
 
 /****************************************************
             File Management
 *****************************************************/
 
+const local = FileManager.local();
+
 function saveToFile(content, key) {
-    const folder = local.documentsDirectory() + "/LunchMoneyWidget";
-    const filePath = folder + `/${key}`;
-
-    local.createDirectory(folder, true);
-    local.writeString(filePath, content)
+  const folder = local.documentsDirectory() + "/" + BASE_FILE;
+  local.createDirectory(folder, true);
+  local.writeString(folder + "/" + key, content);
 }
 
-async function readString(filePath, storage) {
-    return local.readString(local.documentsDirectory() + "/" + filePath);
+async function readString(keyLocation) {
+  return local.readString(local.documentsDirectory() + "/" + keyLocation);
 }
 
-function doesFileExist(filePath) {
-  if (local.fileExists(local.documentsDirectory() + "/" + filePath)) {
-    return LOCAL;
-  }
-  return false;
+function doesFileExist(keyLocation) {
+  return local.fileExists(local.documentsDirectory() + "/" + keyLocation);
 }
 
-function Cache(storage) {
+function Cache() {
   const fileManager = FileManager.local();
-    
   const documentsDirectory = fileManager.documentsDirectory();
-    
+
+  const read = (key) => fileManager.readString(documentsDirectory + "/" + BASE_FILE + "/" + key);
+
   const set = (key, content) => {
     const folder = documentsDirectory + "/" + BASE_FILE;
     fileManager.createDirectory(folder, true);
     fileManager.writeString(folder + "/" + key, content);
-    // console.log(`save to cache: ${folder + "/" + key}`)
-    // console.log(content);
-  }
-  
+  };
+
   const get = (key, cutOffTimeInMs) => {
     const cacheFilePath = documentsDirectory + "/" + BASE_FILE + "/" + key;
     const cacheCutOffDate = new Date(Date.now() - cutOffTimeInMs);
-    const dateOfCacheModification = fileManager.modificationDate(cacheFilePath);
-    const getFromCache = dateOfCacheModification > cacheCutOffDate;
-    //Debug cache info
-    // console.log(`Cache expired: ${!getFromCache}`);
-    // console.log(`Cache read at: ${cacheFilePath}`);
-    // console.log(`Cache last modified: \t${dateOfCacheModification}`);
-    // console.log(`Cache expiry date: \t${cacheCutOffDate}`);
     try {
-      return getFromCache
-        ? fileManager.readString(cacheFilePath)
-        : null;
-    } catch(e) {
-      console.error(e);
+      return fileManager.modificationDate(cacheFilePath) > cacheCutOffDate ? read(key) : null;
+    } catch (e) {
       return null;
     }
-  }
+  };
 
   const forceGet = (key) => {
-    const cacheFilePath = documentsDirectory + "/" + BASE_FILE + "/" + key;
     try {
-      return fileManager.readString(cacheFilePath);
-    } catch(e) {
-      console.error(e);
+      return read(key);
+    } catch (e) {
       return null;
     }
-  }
-  
+  };
+
   return { set, get, forceGet };
 }
 
@@ -568,8 +497,7 @@ function Cache(storage) {
             Widget Layouts
 *****************************************************/
 
-function initLayout()
-{
+function initLayout() {
   let Layout = {};
   for (const family of Object.keys(FAMILY_LAYOUTS)) {
     const config = FAMILY_LAYOUTS[family];
@@ -661,15 +589,17 @@ function addHeader(mainStack) {
   const periodRow = mainStack.addStack();
   periodRow.layoutHorizontally();
   periodRow.addSpacer();
-  const period = periodRow.addText(
-    TEMP_SHOW_LAST_MONTH
-      ? MONTHS[(new Date().getMonth() - 1 + 12) % 12].toUpperCase()
-      : (USE_PAY_CYCLE ? "CURRENT PAY CYCLE" : MONTHS[new Date().getMonth()].toUpperCase())
-  );
+  const period = periodRow.addText(budgetPeriodLabel());
   period.font = regularFont;
   period.textColor = regularColor;
   period.centerAlignText();
   periodRow.addSpacer();
+}
+
+function budgetPeriodLabel() {
+  if (TEMP_SHOW_LAST_MONTH) return MONTHS[(new Date().getMonth() - 1 + 12) % 12].toUpperCase();
+  if (USE_PAY_CYCLE) return "CURRENT PAY CYCLE";
+  return MONTHS[new Date().getMonth()].toUpperCase();
 }
 
 function addCaption(mainStack, text, size) {
