@@ -176,7 +176,7 @@ async function getApiKey() {
 }
 
 // Fetches the summary + categories for the current budget period, computes leftovers,
-// and pulls the latest unreviewed transactions in the same range
+// and pulls the latest unreviewed transactions (all time, newest first)
 async function lunchMoneyLeftoverInfo() {
   if (!LM_ACCESS_TOKEN) {
     return null;
@@ -189,7 +189,7 @@ async function lunchMoneyLeftoverInfo() {
     const [summary, categories, unreviewed] = await Promise.all([
       sendLunchMoneyRequest(`${BASE_URL}/summary`, params),
       sendLunchMoneyRequest(`${BASE_URL}/categories`),
-      fetchUnreviewedTransactions(range)
+      fetchUnreviewedTransactions()
     ]);
     return {
       ...computeLeftover(summary, categories),
@@ -202,11 +202,10 @@ async function lunchMoneyLeftoverInfo() {
   }
 }
 
-// Recent transactions awaiting review in the period, newest first
-async function fetchUnreviewedTransactions(range) {
+// Latest transactions awaiting review across the whole account, newest first
+async function fetchUnreviewedTransactions() {
   try {
     const data = await sendLunchMoneyRequest(`${BASE_URL}/transactions`, {
-      ...range,
       status: "unreviewed"
     });
     const raw = (data && data.transactions) || [];
@@ -223,7 +222,7 @@ async function fetchUnreviewedTransactions(range) {
     let diag = null;
     if (raw.length === 0) {
       const body = data && !Array.isArray(data) ? JSON.stringify(data).slice(0, 120) : "";
-      diag = `no unreviewed ${range.start_date}..${range.end_date}${body ? " — " + body : ""}`;
+      diag = `no unreviewed anywhere${body ? " — " + body : ""}`;
     } else if (rows.length === 0) {
       diag = `all ${raw.length} unreviewed were grouped`;
     }
