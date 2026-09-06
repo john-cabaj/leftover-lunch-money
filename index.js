@@ -97,7 +97,7 @@ async function getWidget() {
     debugStack.spacing = 1;
     for (const line of DEBUG_LINES) {
       const t = debugStack.addText(line);
-      t.font = Font.monospacedSystemFont(8);
+      t.font = new Font(FONT_NAME, 8);
       t.textColor = regularColor;
       t.textOpacity = 0.9;
     }
@@ -226,17 +226,26 @@ function buildCategoryDebugLines(summary, categories, result) {
   lines.push(`INFLOW ${formatMoney(result ? result.inflow : 0)} OUTFLOW ${formatMoney(result ? result.outflow : 0)} LEFTOVER ${formatMoney(result ? result.savings : 0)}`);
   const infoMap = buildCategoryInfo(categories);
   const nameById = buildNameMap(categories);
+  const groupedBudgeted = {};
   for (const entry of summary.categories) {
-    if ((infoMap[entry.category_id] || {}).isIncome) continue;
+    const info = infoMap[entry.category_id] || {};
+    if (info.isGroup && entry.totals.budgeted != null) {
+      groupedBudgeted[entry.category_id] = true;
+    }
+  }
+  for (const entry of summary.categories) {
+    const info = infoMap[entry.category_id] || {};
+    if (info.isIncome) continue;
+    if (info.isGroup && entry.totals.budgeted == null) continue;
+    if (info.groupId != null && groupedBudgeted[info.groupId]) continue;
     const initialBudget = entry.totals.budgeted;
-    if (initialBudget == null) continue;
     const activity = (entry.totals.other_activity || 0) + (entry.totals.recurring_activity || 0);
     const rollover = entry.rollover_pool ? (entry.rollover_pool.budgeted_to_base || 0) : 0;
     const available = entry.totals.available != null
       ? entry.totals.available
-      : (initialBudget + rollover - activity);
-    const contribution = available >= 0 ? initialBudget : (initialBudget - available);
-    lines.push(`${nameById[entry.category_id] || entry.category_id} | bud ${initialBudget} spend ${activity.toFixed(2)} avail ${available} roll ${rollover.toFixed(2)} | contrib ${formatMoney(contribution)}`);
+      : (initialBudget != null ? initialBudget + rollover - activity : null);
+    const contribution = categoryContribution(entry);
+    lines.push(`${nameById[entry.category_id] || entry.category_id} | bud ${initialBudget == null ? "-" : initialBudget} spend ${activity.toFixed(2)} avail ${available == null ? "-" : available.toFixed(2)} roll ${rollover.toFixed(2)} | contrib ${formatMoney(contribution)}`);
   }
   return lines;
 }
@@ -277,18 +286,10 @@ function computeLeftover(summary, categories) {
   let outflow = 0;
   for (const entry of rows) {
     const info = categoryInfo[entry.category_id] || {};
+    if (info.isGroup && entry.totals.budgeted == null) continue;
     if (info.groupId != null && groupedBudgeted[info.groupId]) continue;
 
-    const initialBudget = entry.totals.budgeted;
-    if (initialBudget == null) continue;
-
-    const activity = (entry.totals.other_activity || 0) + (entry.totals.recurring_activity || 0);
-    const rollover = entry.rollover_pool ? (entry.rollover_pool.budgeted_to_base || 0) : 0;
-    const available = entry.totals.available != null
-      ? entry.totals.available
-      : (initialBudget + rollover - activity);
-
-    outflow += (available >= 0) ? initialBudget : (initialBudget - available);
+    outflow += categoryContribution(entry);
   }
 
   const leftover = inflow - outflow;
@@ -297,6 +298,17 @@ function computeLeftover(summary, categories) {
     outflow,
     savings: leftover
   };
+}
+
+function categoryContribution(entry) {
+  const activity = (entry.totals.other_activity || 0) + (entry.totals.recurring_activity || 0);
+  const initialBudget = entry.totals.budgeted;
+  if (initialBudget == null) return activity;
+  const rollover = entry.rollover_pool ? (entry.rollover_pool.budgeted_to_base || 0) : 0;
+  const available = entry.totals.available != null
+    ? entry.totals.available
+    : (initialBudget + rollover - activity);
+  return (available >= 0) ? initialBudget : (initialBudget - available);
 }
 
 function totalFromBreakdown(breakdown) {
