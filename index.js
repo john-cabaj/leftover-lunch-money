@@ -223,8 +223,7 @@ function computeLeftover(summary, categories) {
     }
   }
 
-  let budgeted = 0;
-  let overspend = 0;
+  let outflow = 0;
   for (const entry of rows) {
     const info = categoryInfo[entry.category_id] || {};
     if (info.groupId != null && groupedBudgeted[info.groupId]) continue;
@@ -232,19 +231,16 @@ function computeLeftover(summary, categories) {
     const initialBudget = entry.totals.budgeted;
     if (initialBudget == null) continue;
 
-    budgeted += initialBudget;
     const activity = (entry.totals.other_activity || 0) + (entry.totals.recurring_activity || 0);
     const rollover = entry.rollover_pool ? (entry.rollover_pool.budgeted_to_base || 0) : 0;
-    overspend += Math.max(0, activity - (initialBudget + rollover));
+
+    outflow += (activity > initialBudget + rollover) ? activity : initialBudget;
   }
 
-  const outflow = budgeted + overspend;
   const leftover = inflow - outflow;
   return {
     inflow,
     outflow,
-    budgeted,
-    overspend,
     savings: leftover
   };
 }
@@ -619,8 +615,6 @@ function addAmount(mainStack, value, size, colorOverride) {
 function addBreakdown(mainStack, data, detailFont) {
   addDetailRow(mainStack, "Inflow", Math.abs(data.inflow), detailFont);
   addDetailRow(mainStack, "Outflow", data.outflow, detailFont);
-  addDetailRow(mainStack, "Budgeted", data.budgeted, detailFont);
-  addDetailRow(mainStack, "Overspend", data.overspend, detailFont);
 }
 
 function addDetailRow(mainStack, label, value, detailFont) {
