@@ -24,8 +24,8 @@ const iCloud = FileManager.iCloud();
 
 const BASE_FILE = 'LunchMoneyWidget';
 const API_FILE = "apiKey";
-const CACHE_KEY = "lunchMoneyCache";
-const CACHED_MS = 7200000; // 2 hours
+const CACHE_KEY = "lunchMoneyCache_v2";
+const CACHED_MS = 600000; // 10 minutes
 
 const LOCAL = "local";
 const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
@@ -185,7 +185,12 @@ async function lunchMoneyLeftoverInfo() {
       sendLunchMoneyRequest(`${BASE_URL}/summary`, params),
       sendLunchMoneyRequest(`${BASE_URL}/categories`)
     ]);
-    return computeLeftover(summary, categories);
+    const result = computeLeftover(summary, categories);
+    if (!config.widgetFamily && result) {
+      console.log("Leftover summary:", JSON.stringify(result));
+      console.log("inflow totals:", JSON.stringify(summary.totals && summary.totals.inflow));
+    }
+    return result;
   } catch (e) {
     console.error(e);
     return null;
@@ -193,15 +198,31 @@ async function lunchMoneyLeftoverInfo() {
 }
 
 function computeLeftover(summary, categories) {
+  if (!summary || !Array.isArray(summary.categories)) {
+    return null;
+  }
+
   const inflow = totalFromBreakdown(summary.totals && summary.totals.inflow);
   const categoryInfo = buildCategoryInfo(categories);
 
+  const rows = summary.categories.filter((entry) => {
+    const info = categoryInfo[entry.category_id] || {};
+    return !info.isIncome;
+  });
+
+  const groupedBudgeted = {};
+  for (const entry of rows) {
+    const info = categoryInfo[entry.category_id] || {};
+    if (info.isGroup && entry.totals.budgeted != null) {
+      groupedBudgeted[entry.category_id] = true;
+    }
+  }
+
   let budgeted = 0;
   let overspend = 0;
-  for (const entry of (summary.categories || [])) {
-    const info = categoryInfo[entry.category_id];
-    if (info && info.isIncome) continue;
-    if (info && info.groupId != null) continue;
+  for (const entry of rows) {
+    const info = categoryInfo[entry.category_id] || {};
+    if (info.groupId != null && groupedBudgeted[info.groupId]) continue;
 
     const initialBudget = entry.totals.budgeted;
     if (initialBudget == null) continue;
@@ -236,6 +257,7 @@ function buildCategoryInfo(categories) {
   const add = (category) => {
     info[category.id] = {
       isIncome: category.is_income,
+      isGroup: !!category.is_group,
       groupId: category.group_id != null ? category.group_id : null
     };
     if (Array.isArray(category.children)) {
@@ -313,19 +335,29 @@ function addBudgetPeriod(date, settings, count) {
         d.setDate(d.getDate() + 7);
         break;
       case "month":
-        d.setMonth(d.getMonth() + 1);
+        addMonthsClamped(d, 1);
         break;
       case "year":
         d.setFullYear(d.getFullYear() + 1);
+        if (d.getMonth() !== date.getMonth()) d.setDate(0);
         break;
       case "twice a month":
         d.setDate(d.getDate() + 15);
         break;
       default:
-        d.setMonth(d.getMonth() + 1);
+        addMonthsClamped(d, 1);
     }
   }
   return d;
+}
+
+function addMonthsClamped(date, n) {
+  const day = date.getDate();
+  const target = new Date(date.getFullYear(), date.getMonth() + n, 1);
+  const lastDay = new Date(target.getFullYear(), target.getMonth() + 1, 0).getDate();
+  date.setFullYear(target.getFullYear());
+  date.setMonth(target.getMonth());
+  date.setDate(Math.min(day, lastDay));
 }
 
 function getCurrentBudgetPeriod(settings) {
