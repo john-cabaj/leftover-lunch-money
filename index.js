@@ -31,8 +31,8 @@ const USE_PAY_CYCLE = args.widgetParameter != null;
 
 const FAMILY_LAYOUTS = {
   small:      { layout: "stacked", caption: 11, inflowAmount: 20, leftoverAmount: 25 },
-  medium:     { layout: "columns", header: true, caption: 12, amount: 26 },
-  large:      { layout: "breakdown", header: true, caption: 14, amount: 40, detailFont: 10 },
+  medium:     { layout: "columns", header: true, caption: 12, amount: 26, metricWidth: 100 },
+  large:      { layout: "stacked", caption: 16, inflowAmount: 34, leftoverAmount: 42 },
   extraLarge: { layout: "breakdown", header: true, caption: 15, amount: 46, detailFont: 11 },
   undefined:  { layout: "stacked", caption: 11, inflowAmount: 20, leftoverAmount: 25 }
 };
@@ -524,6 +524,7 @@ function addMetricRow(mainStack, data, config) {
 function addMetricColumn(parentRow, label, value, config) {
   const col = parentRow.addStack();
   col.layoutVertically();
+  col.size = new Size(config.metricWidth || 0, 0);
 
   const labelRow = col.addStack();
   labelRow.layoutHorizontally();
