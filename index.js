@@ -58,21 +58,62 @@ Script.complete();
 *****************************************************/
 
 async function getWidget() {
-  const lunchMoneyData = await getAllData();
-  
   const widget = new ListWidget();
   widget.title = "Lunch Money";
   widget.backgroundGradient = getLinearGradient(COLORS.bg1, COLORS.bg2);
-  
+
+  const widgetFamily = config.widgetFamily;
+
+  let lunchMoneyData = null;
+  let errorMessage = null;
+  try {
+    lunchMoneyData = await getAllData();
+    if (!lunchMoneyData && !LM_ACCESS_TOKEN) {
+      errorMessage = "Add your Lunch Money API key by running this script in the Scriptable app.";
+    } else if (!lunchMoneyData) {
+      errorMessage = "Couldn't load Lunch Money data. Check your connection and API key.";
+    }
+  } catch (e) {
+    console.error(e);
+    errorMessage = "Couldn't load Lunch Money data.";
+  }
+
+  if (errorMessage) {
+    addErrorState(widget, widgetFamily, errorMessage);
+    return widget;
+  }
+
   const mainStack = widget.addStack();
   mainStack.layoutVertically();
   mainStack.spacing = 2;
-  
-  const widgetFamily = config.widgetFamily;
   Layout[widgetFamily](mainStack, lunchMoneyData);
 
   return widget;
 };
+
+function addErrorState(widget, widgetFamily, message) {
+  const mainStack = widget.addStack();
+  mainStack.layoutVertically();
+
+  const captionStack = mainStack.addStack();
+  captionStack.layoutHorizontally();
+  captionStack.addSpacer();
+  const caption = captionStack.addText("Leftover");
+  caption.font = new Font(FONT_NAME, 11);
+  caption.textColor = new Color(BRAND_YELLOW);
+  caption.centerAlignText();
+  captionStack.addSpacer();
+
+  const messageStack = mainStack.addStack();
+  messageStack.layoutHorizontally();
+  messageStack.addSpacer();
+  const messageText = messageStack.addText(message);
+  messageText.font = smallFont;
+  messageText.textColor = regularColor;
+  messageText.centerAlignText();
+  messageText.textOpacity = 0.8;
+  messageStack.addSpacer();
+}
 
 async function getAllData() {
   const cached = cache.get(CACHE_KEY, CACHED_MS);
@@ -84,7 +125,8 @@ async function getAllData() {
 
   // if not internet connection load data from cache
   if(!data){
-    return JSON.parse(cache.forceGet(CACHE_KEY));
+    const forced = cache.forceGet(CACHE_KEY);
+    return forced ? JSON.parse(forced) : null;
   }
   
   cache.set(CACHE_KEY, JSON.stringify(data));
@@ -110,7 +152,8 @@ async function getApiKey() {
   const keyLocation = BASE_FILE + "/" + API_FILE;
   const exists = doesFileExist(keyLocation);
   if (exists) {
-    return await readString(keyLocation, exists);
+    const key = await readString(keyLocation, exists);
+    if (key) return key;
   }
   const alert = new Alert();
   alert.addSecureTextField("api_key", "");
@@ -120,12 +163,18 @@ async function getApiKey() {
 
   const option = await alert.present();
   const apiKey = alert.textFieldValue(0);
-  
-  saveToFile(apiKey, API_FILE);
-  return apiKey;
+
+  if (apiKey) {
+    saveToFile(apiKey, API_FILE);
+    return apiKey;
+  }
+  return null;
 }
 
 async function lunchMoneyLeftoverInfo() {
+  if (!LM_ACCESS_TOKEN) {
+    return null;
+  }
   const params = getStartAndEndDateForPayCycle();
   params.include_totals = true;
   params.include_rollover_pool = true;
@@ -232,6 +281,7 @@ function sendHTTPRequest(url, params, headers, method = 'GET') {
 *****************************************************/
 
 function formatMoney(value) {
+  if (!isFinite(value)) return "$0.00";
   const abs = Math.abs(value).toFixed(2);
   return (value < 0 ? "-" : "") + "$" + abs;
 }
@@ -252,7 +302,7 @@ function getStartAndEndDateForPayCycle() {
 *****************************************************/
 
 function saveToFile(content, key) {
-    const folder = iCloud.documentsDirectory() + "/LunchMoneyWidget";
+    const folder = local.documentsDirectory() + "/LunchMoneyWidget";
     const filePath = folder + `/${key}`;
 
     local.createDirectory(folder, true);
@@ -352,7 +402,7 @@ function addHeader(mainStack) {
   titleRow.layoutHorizontally();
   titleRow.addSpacer();
   const title = titleRow.addText("LUNCH MONEY");
-  title.font = Font.semiboldSystemFont(11);
+  title.font = Font.boldSystemFont(11);
   title.textColor = new Color(BRAND_GREEN);
   title.centerAlignText();
   titleRow.addSpacer();
