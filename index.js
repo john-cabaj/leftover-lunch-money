@@ -237,7 +237,7 @@ function computeLeftover(summary, categories) {
       ? entry.totals.available
       : (initialBudget + rollover - activity);
 
-    outflow += (available >= 0) ? initialBudget : activity;
+    outflow += (available >= 0) ? initialBudget : (initialBudget - available);
   }
 
   const leftover = inflow - outflow;
