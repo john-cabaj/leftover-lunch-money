@@ -24,7 +24,7 @@ const BASE_URL = 'https://api.lunchmoney.dev/v2';
 // Tap targets: open the Lunch Money app via its URL scheme
 const BUDGET_URL = "lunchmoney://budget";
 const UNREVIEWED_URL = "lunchmoney://transactions?status=unreviewed&include_pending=true";
-const DEFAULT_URL = "lunchmoney://transactions?include_pending=true";
+const DEFAULT_URL = "lunchmoney://transactions";
 
 // BASE_FILE: folder for cached data; API_KEY: Keychain entry for the API token;
 // CACHE_KEY + CACHED_MS: cache file name and how long a fresh copy stays usable
@@ -717,7 +717,7 @@ function addHeader(mainStack) {
   const titleRow = mainStack.addStack();
   titleRow.layoutHorizontally();
   titleRow.addSpacer();
-  const title = titleRow.addText("LUNCH MONEY v12");
+  const title = titleRow.addText("LUNCH MONEY v13");
   title.font = Font.boldSystemFont(12);
   title.textColor = new Color(BRAND_GREEN);
   title.centerAlignText();
