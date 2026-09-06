@@ -191,7 +191,11 @@ async function lunchMoneyLeftoverInfo() {
       sendLunchMoneyRequest(`${BASE_URL}/categories`),
       fetchUnreviewedTransactions(range)
     ]);
-    return { ...computeLeftover(summary, categories), unreviewed };
+    return {
+      ...computeLeftover(summary, categories),
+      unreviewed: unreviewed.rows,
+      unreviewedDiag: unreviewed.diag
+    };
   } catch (e) {
     console.error(e);
     return null;
@@ -216,15 +220,16 @@ async function fetchUnreviewedTransactions(range) {
         amount: t.to_base != null ? t.to_base : parseFloat(t.amount),
         date: t.date
       }));
+    let diag = null;
     if (raw.length === 0) {
-      console.log(`[unreviewed] none for ${range.start_date}..${range.end_date}; response: ${JSON.stringify(data).slice(0, 300)}`);
-    } else {
-      console.log(`[unreviewed] fetched ${raw.length}, kept ${rows.length}`);
+      const body = data && !Array.isArray(data) ? JSON.stringify(data).slice(0, 120) : "";
+      diag = `no unreviewed ${range.start_date}..${range.end_date}${body ? " — " + body : ""}`;
+    } else if (rows.length === 0) {
+      diag = `all ${raw.length} unreviewed were grouped`;
     }
-    return rows;
+    return { rows, diag };
   } catch (e) {
-    console.error(`[unreviewed] request failed: ${e}`);
-    return [];
+    return { rows: [], diag: "request failed: " + e };
   }
 }
 
@@ -578,11 +583,7 @@ function addOverview(mainStack, data, config) {
   addCaption(mainStack, "Unreviewed", config.caption);
   const items = (data.unreviewed || []).slice(0, config.maxUnreviewed || 7);
   if (items.length === 0) {
-    const empty = mainStack.addText("None");
-    empty.font = new Font(FONT_NAME, config.detailFont || 11);
-    empty.textColor = regularColor;
-    empty.textOpacity = 0.6;
-    empty.centerAlignText();
+    addUnreviewedEmpty(mainStack, data.unreviewedDiag, config);
   } else {
     items.forEach((t) => addTransactionRow(mainStack, t, config));
   }
@@ -613,15 +614,23 @@ function addReviewSplit(mainStack, data, config) {
   addCaption(right, "Unreviewed", config.caption);
   const items = (data.unreviewed || []).slice(0, config.maxUnreviewed || 4);
   if (items.length === 0) {
-    const empty = right.addText("None");
-    empty.font = new Font(FONT_NAME, config.detailFont || 9);
-    empty.textColor = regularColor;
-    empty.textOpacity = 0.6;
+    addUnreviewedEmpty(right, data.unreviewedDiag, config);
   } else {
     items.forEach((t) => addTransactionRow(right, t, config));
   }
   right.addSpacer();
   row.addSpacer(2);
+}
+
+// Unreviewed section fallback; shows inline diagnostics when nothing was fetched
+function addUnreviewedEmpty(parent, diag, config) {
+  const text = diag ? diag : "None";
+  const empty = parent.addText(text);
+  empty.font = new Font(FONT_NAME, Math.max(7, (config.detailFont || 9) - 2));
+  empty.textColor = regularColor;
+  empty.textOpacity = diag ? 0.8 : 0.6;
+  empty.lineLimit = 3;
+  empty.minimumScaleFactor = 0.6;
 }
 
 // One unreviewed transaction: payee + amount on top, date underneath
