@@ -695,7 +695,7 @@ function addHeader(mainStack) {
   const titleRow = mainStack.addStack();
   titleRow.layoutHorizontally();
   titleRow.addSpacer();
-  const title = titleRow.addText("LUNCH MONEY");
+  const title = titleRow.addText("LUNCH MONEY v7");
   title.font = Font.boldSystemFont(12);
   title.textColor = new Color(BRAND_GREEN);
   title.centerAlignText();
