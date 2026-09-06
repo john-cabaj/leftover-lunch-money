@@ -539,6 +539,7 @@ function addMetricColumn(parentRow, label, value, config) {
   valueRow.addSpacer();
   const valueText = valueRow.addText(formatMoney(value));
   valueText.font = new Font("Menlo-Bold", config.amount);
+  valueText.lineLimit = 1;
   valueText.minimumScaleFactor = 0.5;
   valueText.textColor = label === "Leftover"
     ? (value < 0 ? new Color(LOSS_RED) : new Color(BRAND_GREEN))
@@ -590,6 +591,7 @@ function addAmount(mainStack, value, size, colorOverride) {
   row.addSpacer();
   const amount = row.addText(formatMoney(value));
   amount.font = new Font("Menlo-Bold", size);
+  amount.lineLimit = 1;
   amount.minimumScaleFactor = 0.5;
   amount.textColor = colorOverride || (value < 0 ? new Color(LOSS_RED) : new Color(BRAND_GREEN));
   amount.centerAlignText();
@@ -611,6 +613,7 @@ function addDetailRow(mainStack, label, value, detailFont) {
   row.addSpacer(8);
   const valueText = row.addText(formatMoney(value));
   valueText.font = new Font(FONT_NAME, detailFont || 9);
+  valueText.lineLimit = 1;
   valueText.minimumScaleFactor = 0.5;
   valueText.textColor = regularColor;
   valueText.rightAlignText();
