@@ -210,7 +210,11 @@ async function lunchMoneyLeftoverInfo() {
 // status breakdown when nothing matches
 async function fetchUnreviewedTransactions(range) {
   try {
-    const data = await sendLunchMoneyRequest(`${BASE_URL}/transactions`, range);
+    const data = await sendLunchMoneyRequest(`${BASE_URL}/transactions`, {
+      ...range,
+      status: "unreviewed",
+      include_pending: true
+    });
     const raw = (data && data.transactions) || [];
     const counts = {};
     raw.forEach((t) => { counts[t.status] = (counts[t.status] || 0) + 1; });
