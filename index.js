@@ -25,7 +25,7 @@ const BASE_URL = 'https://api.lunchmoney.dev/v2';
 // CACHE_KEY + CACHED_MS: cache file name and how long a fresh copy stays usable
 const BASE_FILE = 'LunchMoneyWidget';
 const API_KEY = "lunchMoneyApiKey";
-const CACHE_KEY = "lunchMoneyCache_v2";
+const CACHE_KEY = "lunchMoneyCache_v3";
 const CACHED_MS = 600000; // 10 minutes
 
 // Month names for the header label
@@ -205,8 +205,9 @@ async function fetchUnreviewedTransactions(range) {
       ...range,
       status: "unreviewed"
     });
+    // Keep grouped transactions out; pending ones are unreviewed by definition
     return (data && data.transactions || [])
-      .filter((t) => !t.is_group && !t.is_pending)
+      .filter((t) => !t.is_group_parent && !t.is_group)
       .sort((a, b) => (b.date === a.date
         ? (b.created_at || "").localeCompare(a.created_at || "")
         : b.date.localeCompare(a.date)))
