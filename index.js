@@ -526,7 +526,7 @@ function renderWidget(mainStack, data, config) {
 
 function addStackedMetrics(mainStack, data, config) {
   addCaption(mainStack, "Inflow", config.caption);
-  addAmount(mainStack, data.inflow, config.inflowAmount, regularColor);
+  addAmount(mainStack, Math.abs(data.inflow), config.inflowAmount, regularColor);
   addCaption(mainStack, "Outflow", config.caption);
   addAmount(mainStack, data.outflow, config.inflowAmount, regularColor);
   addCaption(mainStack, "Leftover", config.caption);
@@ -537,7 +537,7 @@ function addMetricRow(mainStack, data, config) {
   const row = mainStack.addStack();
   row.layoutHorizontally();
   row.addSpacer();
-  addMetricColumn(row, "Inflow", data.inflow, config);
+  addMetricColumn(row, "Inflow", Math.abs(data.inflow), config);
   row.addSpacer();
   addMetricColumn(row, "Leftover", data.savings, config);
   row.addSpacer();
@@ -617,7 +617,7 @@ function addAmount(mainStack, value, size, colorOverride) {
 }
 
 function addBreakdown(mainStack, data, detailFont) {
-  addDetailRow(mainStack, "Inflow", data.inflow, detailFont);
+  addDetailRow(mainStack, "Inflow", Math.abs(data.inflow), detailFont);
   addDetailRow(mainStack, "Outflow", data.outflow, detailFont);
   addDetailRow(mainStack, "Budgeted", data.budgeted, detailFont);
   addDetailRow(mainStack, "Overspend", data.overspend, detailFont);
