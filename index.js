@@ -246,10 +246,10 @@ function computeLeftover(summary, categories) {
 
 function totalFromBreakdown(breakdown) {
   if (!breakdown) return 0;
-  return (breakdown.other_activity || 0)
-       + (breakdown.recurring_activity || 0)
-       + (breakdown.recurring_remaining || 0)
-       + (breakdown.uncategorized || 0);
+  return Math.abs(breakdown.other_activity || 0)
+       + Math.abs(breakdown.recurring_activity || 0)
+       + Math.abs(breakdown.recurring_remaining || 0)
+       + Math.abs(breakdown.uncategorized || 0);
 }
 
 function buildCategoryInfo(categories) {
