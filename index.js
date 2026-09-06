@@ -40,7 +40,7 @@ const USE_PAY_CYCLE = args.widgetParameter != null;
 // Per-widget-family appearance. undefined covers running in the app/preview.
 const FAMILY_LAYOUTS = {
   small:      { layout: "stacked", caption: 11, inflowAmount: 20, leftoverAmount: 25 },
-  medium:     { layout: "review", header: true, caption: 10, amount: 20, leftoverAmount: 24, detailFont: 9, payeeLen: 14, maxUnreviewed: 4 },
+  medium:     { layout: "review", header: true, caption: 12, amount: 26, leftoverAmount: 32, detailFont: 11, payeeLen: 22, maxUnreviewed: 3, columnWidth: 99, rightColumnWidth: 198 },
   large:      { layout: "overview", header: true, caption: 14, amount: 30, metricWidth: 120, detailFont: 12, payeeLen: 26, maxUnreviewed: 7 },
   extraLarge: { layout: "breakdown", header: true, caption: 15, amount: 46, detailFont: 11 },
   undefined:  { layout: "stacked", caption: 11, inflowAmount: 20, leftoverAmount: 25 }
@@ -68,6 +68,7 @@ Script.complete();
 async function getWidget() {
   const widget = new ListWidget();
   widget.title = "Lunch Money";
+  widget.setPadding(16, 16, 16, 16);
   widget.backgroundGradient = getLinearGradient(COLORS.bg1, COLORS.bg2);
 
   const widgetFamily = config.widgetFamily;
@@ -617,14 +618,15 @@ function addOverview(mainStack, data, config) {
   }
 }
 
-// Medium layout: stacked leftovers on the left, latest unreviewed transactions on the right
+// Medium layout: Inflow / Outflow / Leftover centered in the left third,
+// latest unreviewed transactions starting at the top of the right two-thirds
 function addReviewSplit(mainStack, data, config) {
   const row = mainStack.addStack();
   row.layoutHorizontally();
-  row.addSpacer(2);
 
   const left = row.addStack();
   left.layoutVertically();
+  left.size = new Size(config.columnWidth || 99, 0);
   left.addSpacer();
   addCaption(left, "Inflow", config.caption);
   addAmount(left, Math.abs(data.inflow), config.amount, regularColor);
@@ -634,11 +636,9 @@ function addReviewSplit(mainStack, data, config) {
   addAmount(left, data.savings, config.leftoverAmount || config.amount);
   left.addSpacer();
 
-  row.addSpacer(12);
-
   const right = row.addStack();
   right.layoutVertically();
-  right.addSpacer();
+  right.size = new Size(config.rightColumnWidth || 198, 0);
   addCaption(right, "Unreviewed", config.caption);
   const items = (data.unreviewed || []).slice(0, config.maxUnreviewed || 4);
   if (items.length === 0) {
@@ -647,7 +647,6 @@ function addReviewSplit(mainStack, data, config) {
     items.forEach((t) => addTransactionRow(right, t, config));
   }
   right.addSpacer();
-  row.addSpacer(2);
 }
 
 // Unreviewed section fallback; shows inline diagnostics when nothing was fetched
