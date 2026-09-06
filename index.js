@@ -227,17 +227,19 @@ function buildCategoryDebugLines(summary, categories, result) {
   const infoMap = buildCategoryInfo(categories);
   const nameById = buildNameMap(categories);
   const groupedBudgeted = {};
+  const groupHasBudgetedChildren = {};
   for (const entry of summary.categories) {
     const info = infoMap[entry.category_id] || {};
     if (info.isGroup && entry.totals.budgeted != null) {
       groupedBudgeted[entry.category_id] = true;
+    } else if (info.groupId != null && entry.totals.budgeted != null) {
+      groupHasBudgetedChildren[info.groupId] = true;
     }
   }
   for (const entry of summary.categories) {
     const info = infoMap[entry.category_id] || {};
     if (info.isIncome) continue;
-    if (info.isGroup && entry.totals.budgeted == null) continue;
-    if (info.groupId != null && groupedBudgeted[info.groupId]) continue;
+    if (!shouldCountEntry(entry, info, groupedBudgeted, groupHasBudgetedChildren)) continue;
     const initialBudget = entry.totals.budgeted;
     const activity = (entry.totals.other_activity || 0) + (entry.totals.recurring_activity || 0);
     const rollover = entry.rollover_pool ? (entry.rollover_pool.budgeted_to_base || 0) : 0;
@@ -276,18 +278,20 @@ function computeLeftover(summary, categories) {
   });
 
   const groupedBudgeted = {};
+  const groupHasBudgetedChildren = {};
   for (const entry of rows) {
     const info = categoryInfo[entry.category_id] || {};
     if (info.isGroup && entry.totals.budgeted != null) {
       groupedBudgeted[entry.category_id] = true;
+    } else if (info.groupId != null && entry.totals.budgeted != null) {
+      groupHasBudgetedChildren[info.groupId] = true;
     }
   }
 
   let outflow = 0;
   for (const entry of rows) {
     const info = categoryInfo[entry.category_id] || {};
-    if (info.isGroup && entry.totals.budgeted == null) continue;
-    if (info.groupId != null && groupedBudgeted[info.groupId]) continue;
+    if (!shouldCountEntry(entry, info, groupedBudgeted, groupHasBudgetedChildren)) continue;
 
     outflow += categoryContribution(entry);
   }
@@ -298,6 +302,18 @@ function computeLeftover(summary, categories) {
     outflow,
     savings: leftover
   };
+}
+
+function shouldCountEntry(entry, info, groupedBudgeted, groupHasBudgetedChildren) {
+  if (info.groupId != null) {
+    if (groupedBudgeted[info.groupId] && !groupHasBudgetedChildren[info.groupId]) return false;
+    return true;
+  }
+  if (info.isGroup) {
+    if (entry.totals.budgeted == null) return false;
+    if (groupHasBudgetedChildren[entry.category_id]) return false;
+  }
+  return true;
 }
 
 function categoryContribution(entry) {
