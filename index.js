@@ -86,6 +86,19 @@ async function getWidget() {
     return widget;
   }
 
+  if (!widgetFamily && DEBUG_LINES.length) {
+    const debugStack = widget.addStack();
+    debugStack.layoutVertically();
+    debugStack.spacing = 1;
+    for (const line of DEBUG_LINES) {
+      const t = debugStack.addText(line);
+      t.font = Font.monospacedSystemFont(8);
+      t.textColor = regularColor;
+      t.textOpacity = 0.9;
+    }
+    return widget;
+  }
+
   const mainStack = widget.addStack();
   mainStack.layoutVertically();
   mainStack.spacing = 2;
@@ -119,7 +132,8 @@ function addErrorState(widget, widgetFamily, message) {
 }
 
 async function getAllData() {
-  const cached = cache.get(CACHE_KEY, CACHED_MS);
+  const debugRun = !config.widgetFamily;
+  const cached = debugRun ? null : cache.get(CACHE_KEY, CACHED_MS);
   if (cached) {
     return JSON.parse(cached);
   }
@@ -174,6 +188,8 @@ async function getApiKey() {
   return null;
 }
 
+let DEBUG_LINES = [];
+
 async function lunchMoneyLeftoverInfo() {
   if (!LM_ACCESS_TOKEN) {
     return null;
@@ -193,37 +209,45 @@ async function lunchMoneyLeftoverInfo() {
     const result = computeLeftover(summary, categories);
     console.log("Leftover summary:", JSON.stringify(result));
     console.log("raw totals:", JSON.stringify(summary.totals));
-    const infoMap = buildCategoryInfo(categories);
-    console.log("category detail:",
-      JSON.stringify(
-        summary.categories
-          .filter((entry) => {
-            return !(infoMap[entry.category_id] || {}).isIncome;
-          })
-          .map((entry) => {
-            const initialBudget = entry.totals.budgeted;
-            const activity = (entry.totals.other_activity || 0) + (entry.totals.recurring_activity || 0);
-            const rollover = entry.rollover_pool ? (entry.rollover_pool.budgeted_to_base || 0) : 0;
-            const available = entry.totals.available != null
-              ? entry.totals.available
-              : (initialBudget + rollover - activity);
-            return {
-              id: entry.category_id,
-              budgeted: initialBudget,
-              other_activity: entry.totals.other_activity,
-              recurring_activity: entry.totals.recurring_activity,
-              rollover,
-              available,
-              contribution: available >= 0 ? initialBudget : (initialBudget - available)
-            };
-          })
-      )
-    );
+    DEBUG_LINES = buildCategoryDebugLines(summary, categories, result);
+    DEBUG_LINES.forEach((line) => console.log("category detail: " + line));
     return result;
   } catch (e) {
     console.error(e);
     return null;
   }
+}
+
+function buildCategoryDebugLines(summary, categories, result) {
+  const lines = [];
+  lines.push(`INFLOW ${formatMoney(result ? result.inflow : 0)} OUTFLOW ${formatMoney(result ? result.outflow : 0)} LEFTOVER ${formatMoney(result ? result.savings : 0)}`);
+  const infoMap = buildCategoryInfo(categories);
+  const nameById = buildNameMap(categories);
+  for (const entry of summary.categories) {
+    if ((infoMap[entry.category_id] || {}).isIncome) continue;
+    const initialBudget = entry.totals.budgeted;
+    if (initialBudget == null) continue;
+    const activity = (entry.totals.other_activity || 0) + (entry.totals.recurring_activity || 0);
+    const rollover = entry.rollover_pool ? (entry.rollover_pool.budgeted_to_base || 0) : 0;
+    const available = entry.totals.available != null
+      ? entry.totals.available
+      : (initialBudget + rollover - activity);
+    const contribution = available >= 0 ? initialBudget : (initialBudget - available);
+    lines.push(`${nameById[entry.category_id] || entry.category_id} | bud ${initialBudget} spend ${activity.toFixed(2)} avail ${available} roll ${rollover.toFixed(2)} | contrib ${formatMoney(contribution)}`);
+  }
+  return lines;
+}
+
+function buildNameMap(categories) {
+  const map = {};
+  const add = (category) => {
+    map[category.id] = category.name;
+    if (Array.isArray(category.children)) {
+      category.children.forEach(add);
+    }
+  };
+  (categories.categories || []).forEach(add);
+  return map;
 }
 
 function computeLeftover(summary, categories) {
