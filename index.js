@@ -34,11 +34,11 @@ const USE_PAY_CYCLE = args.widgetParameter != null
 const PAY_CYCLE_ID = args.widgetParameter;
 
 const FAMILY_LAYOUTS = {
-  small:      { layout: "stacked", caption: 9,  inflowAmount: 15, leftoverAmount: 18 },
-  medium:     { layout: "columns", header: true, caption: 11, amount: 22 },
-  large:      { layout: "breakdown", header: true, caption: 12, amount: 30 },
-  extraLarge: { layout: "breakdown", header: true, caption: 12, amount: 34 },
-  undefined:  { layout: "stacked", caption: 9,  inflowAmount: 15, leftoverAmount: 18 }
+  small:      { layout: "stacked", caption: 11, inflowAmount: 20, leftoverAmount: 25 },
+  medium:     { layout: "columns", header: true, caption: 12, amount: 26 },
+  large:      { layout: "breakdown", header: true, caption: 14, amount: 40, detailFont: 10 },
+  extraLarge: { layout: "breakdown", header: true, caption: 15, amount: 46, detailFont: 11 },
+  undefined:  { layout: "stacked", caption: 11, inflowAmount: 20, leftoverAmount: 25 }
 };
 
 /****************************************************
@@ -175,10 +175,12 @@ async function lunchMoneyLeftoverInfo() {
   if (!LM_ACCESS_TOKEN) {
     return null;
   }
-  const params = getStartAndEndDateForPayCycle();
-  params.include_totals = true;
-  params.include_rollover_pool = true;
   try {
+    const settings = await sendLunchMoneyRequest(`${BASE_URL}/budgets/settings`);
+    const range = getCurrentBudgetPeriod(settings) || getCalendarMonthRange();
+    const params = range;
+    params.include_totals = true;
+    params.include_rollover_pool = true;
     const [summary, categories] = await Promise.all([
       sendLunchMoneyRequest(`${BASE_URL}/summary`, params),
       sendLunchMoneyRequest(`${BASE_URL}/categories`)
@@ -286,15 +288,86 @@ function formatMoney(value) {
   return (value < 0 ? "-" : "") + "$" + abs;
 }
 
-function getStartAndEndDateForPayCycle() {
+function formatDateString(date) {
+  const month = date.getMonth() + 1;
+  const day = date.getDate();
+  return `${date.getFullYear()}-${month < 10 ? "0" + month : month}-${day < 10 ? "0" + day : day}`;
+}
+
+function parseIsoDate(value) {
+  const parts = String(value).split("-");
+  return new Date(+parts[0], +parts[1] - 1, +parts[2]);
+}
+
+function addBudgetPeriod(date, settings, count) {
+  const d = new Date(date.getTime());
+  const quantity = settings.budget_period_quantity || 1;
+  const granularity = settings.budget_period_granularity || "month";
+  const units = quantity * count;
+  for (let i = 0; i < units; i++) {
+    switch (granularity) {
+      case "day":
+        d.setDate(d.getDate() + 1);
+        break;
+      case "week":
+        d.setDate(d.getDate() + 7);
+        break;
+      case "month":
+        d.setMonth(d.getMonth() + 1);
+        break;
+      case "year":
+        d.setFullYear(d.getFullYear() + 1);
+        break;
+      case "twice a month":
+        d.setDate(d.getDate() + 15);
+        break;
+      default:
+        d.setMonth(d.getMonth() + 1);
+    }
+  }
+  return d;
+}
+
+function getCurrentBudgetPeriod(settings) {
+  if (!settings || !settings.budget_period_anchor_date) return null;
+  const anchor = parseIsoDate(settings.budget_period_anchor_date);
+  if (isNaN(anchor.getTime())) return null;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  anchor.setHours(0, 0, 0, 0);
+
+  let periodStart = new Date(anchor.getTime());
+  if (periodStart > today) {
+    while (periodStart > today) {
+      periodStart = addBudgetPeriod(periodStart, settings, -1);
+    }
+  } else {
+    while (addBudgetPeriod(periodStart, settings, 1) <= today) {
+      periodStart = addBudgetPeriod(periodStart, settings, 1);
+    }
+  }
+
+  let periodEnd = addBudgetPeriod(periodStart, settings, 1);
+  periodEnd.setDate(periodEnd.getDate() - 1);
+
+  if (settings.budget_use_last_day_of_month && settings.budget_period_granularity === "month") {
+    periodEnd = new Date(periodEnd.getFullYear(), periodEnd.getMonth() + 1, 0);
+  }
+
+  return {
+    start_date: formatDateString(periodStart),
+    end_date: formatDateString(periodEnd)
+  };
+}
+
+function getCalendarMonthRange() {
   const now = new Date();
-  const month = now.getMonth() + 1;
-  const day = now.getDate();
-  const currentMonthStr = month < 10 ? "0" + month : month;
-  const dayStr = day < 10 ? "0" + day : day;
-  const start_date = `${now.getFullYear()}-${currentMonthStr}-01`;
-  const end_date = `${now.getFullYear()}-${currentMonthStr}-${dayStr}`;
-  return {start_date, end_date};
+  const start = new Date(now.getFullYear(), now.getMonth(), 1);
+  const end = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+  return {
+    start_date: formatDateString(start),
+    end_date: formatDateString(end)
+  };
 }
 
 /****************************************************
@@ -398,7 +471,7 @@ function renderWidget(mainStack, data, config) {
       addCaption(mainStack, "Leftover", config.caption);
       addAmount(mainStack, data.savings, config.amount);
       mainStack.addSpacer(10);
-      addBreakdown(mainStack, data);
+      addBreakdown(mainStack, data, config.detailFont);
       mainStack.addSpacer();
       break;
   }
@@ -455,7 +528,7 @@ function addHeader(mainStack) {
   titleRow.layoutHorizontally();
   titleRow.addSpacer();
   const title = titleRow.addText("LUNCH MONEY");
-  title.font = Font.boldSystemFont(11);
+  title.font = Font.boldSystemFont(12);
   title.textColor = new Color(BRAND_GREEN);
   title.centerAlignText();
   titleRow.addSpacer();
@@ -464,7 +537,7 @@ function addHeader(mainStack) {
   periodRow.layoutHorizontally();
   periodRow.addSpacer();
   const period = periodRow.addText(USE_PAY_CYCLE ? "CURRENT PAY CYCLE" : MONTHS[new Date().getMonth()].toUpperCase());
-  period.font = smallFont;
+  period.font = regularFont;
   period.textColor = regularColor;
   period.centerAlignText();
   periodRow.addSpacer();
@@ -492,23 +565,23 @@ function addAmount(mainStack, value, size, colorOverride) {
   row.addSpacer();
 }
 
-function addBreakdown(mainStack, data) {
-  addDetailRow(mainStack, "Inflow", data.inflow);
-  addDetailRow(mainStack, "Outflow", data.outflow);
-  addDetailRow(mainStack, "Budgeted", data.budgeted);
-  addDetailRow(mainStack, "Overspend", data.overspend);
+function addBreakdown(mainStack, data, detailFont) {
+  addDetailRow(mainStack, "Inflow", data.inflow, detailFont);
+  addDetailRow(mainStack, "Outflow", data.outflow, detailFont);
+  addDetailRow(mainStack, "Budgeted", data.budgeted, detailFont);
+  addDetailRow(mainStack, "Overspend", data.overspend, detailFont);
 }
 
-function addDetailRow(mainStack, label, value) {
+function addDetailRow(mainStack, label, value, detailFont) {
   const row = mainStack.addStack();
   row.layoutHorizontally();
   const labelText = row.addText(label);
-  labelText.font = smallFont;
+  labelText.font = new Font(FONT_NAME, detailFont || 9);
   labelText.textColor = regularColor;
   labelText.textOpacity = 0.6;
   row.addSpacer(8);
   const valueText = row.addText(formatMoney(value));
-  valueText.font = smallFont;
+  valueText.font = new Font(FONT_NAME, detailFont || 9);
   valueText.textColor = regularColor;
   valueText.rightAlignText();
 }
