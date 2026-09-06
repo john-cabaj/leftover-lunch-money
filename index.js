@@ -40,7 +40,7 @@ const USE_PAY_CYCLE = args.widgetParameter != null;
 // Per-widget-family appearance. undefined covers running in the app/preview.
 const FAMILY_LAYOUTS = {
   small:      { layout: "stacked", caption: 11, inflowAmount: 20, leftoverAmount: 25 },
-  medium:     { layout: "review", header: true, caption: 12, amount: 26, leftoverAmount: 32, detailFont: 11, payeeLen: 22, maxUnreviewed: 3, columnWidth: 99, rightColumnWidth: 198 },
+  medium:     { layout: "review", header: true, caption: 12, amount: 28, leftoverAmount: 34, detailFont: 10, payeeLen: 20, maxUnreviewed: 3, columnWidth: 140, rightColumnWidth: 157 },
   large:      { layout: "overview", header: true, caption: 14, amount: 30, metricWidth: 120, detailFont: 12, payeeLen: 26, maxUnreviewed: 7 },
   extraLarge: { layout: "breakdown", header: true, caption: 15, amount: 46, detailFont: 11 },
   undefined:  { layout: "stacked", caption: 11, inflowAmount: 20, leftoverAmount: 25 }
@@ -618,16 +618,14 @@ function addOverview(mainStack, data, config) {
   }
 }
 
-// Medium layout: Inflow / Outflow / Leftover centered in the left third,
-// latest unreviewed transactions starting at the top of the right two-thirds
+// Medium layout: metrics top-aligned on the left, unreviewed transactions on the right
 function addReviewSplit(mainStack, data, config) {
   const row = mainStack.addStack();
   row.layoutHorizontally();
 
   const left = row.addStack();
   left.layoutVertically();
-  left.size = new Size(config.columnWidth || 99, 0);
-  left.addSpacer();
+  left.size = new Size(config.columnWidth || 140, 0);
   addCaption(left, "Inflow", config.caption);
   addAmount(left, Math.abs(data.inflow), config.amount, regularColor);
   addCaption(left, "Outflow", config.caption);
@@ -638,7 +636,7 @@ function addReviewSplit(mainStack, data, config) {
 
   const right = row.addStack();
   right.layoutVertically();
-  right.size = new Size(config.rightColumnWidth || 198, 0);
+  right.size = new Size(config.rightColumnWidth || 157, 0);
   addCaption(right, "Unreviewed", config.caption);
   const items = (data.unreviewed || []).slice(0, config.maxUnreviewed || 4);
   if (items.length === 0) {
@@ -667,20 +665,17 @@ function addTransactionRow(parent, t, config) {
 
   const top = block.addStack();
   top.layoutHorizontally();
-  top.addSpacer(0);
   const fontSize = config.detailFont || 9;
   const payee = top.addText(clip(t.payee, config.payeeLen || 16));
   payee.font = new Font(FONT_NAME, fontSize);
   payee.textColor = regularColor;
   payee.lineLimit = 1;
-  top.addSpacer(6);
+  top.addSpacer();
   const amount = top.addText(formatMoney(t.amount));
   amount.font = new Font("Menlo-Bold", fontSize);
   amount.lineLimit = 1;
   amount.minimumScaleFactor = 0.5;
   amount.textColor = t.amount < 0 ? new Color(LOSS_RED) : regularColor;
-  amount.rightAlignText();
-  top.addSpacer(0);
 
   const stamp = block.addText(t.date);
   stamp.font = new Font(FONT_NAME, Math.max(7, fontSize - 2));
