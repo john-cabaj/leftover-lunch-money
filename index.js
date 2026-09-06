@@ -22,9 +22,6 @@ const API_KEY = "lunchMoneyApiKey";
 const CACHE_KEY = "lunchMoneyCache_v2";
 const CACHED_MS = 600000; // 10 minutes
 
-// TEMPORARY: set to false and it returns to the current budget period
-const TEMP_SHOW_LAST_MONTH = true;
-
 const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 
 const USE_PAY_CYCLE = args.widgetParameter != null;
@@ -167,9 +164,7 @@ async function lunchMoneyLeftoverInfo() {
   }
   try {
     const settings = await sendLunchMoneyRequest(`${BASE_URL}/budgets/settings`);
-    const range = TEMP_SHOW_LAST_MONTH
-      ? getLastMonthRange()
-      : (getCurrentBudgetPeriod(settings) || getCalendarMonthRange());
+    const range = getCurrentBudgetPeriod(settings) || getCalendarMonthRange();
     const params = { ...range, include_totals: true, include_rollover_pool: true };
     const [summary, categories] = await Promise.all([
       sendLunchMoneyRequest(`${BASE_URL}/summary`, params),
@@ -383,22 +378,12 @@ function getCurrentBudgetPeriod(settings) {
   };
 }
 
-function monthRange(monthOffset) {
-  const now = new Date();
-  const start = new Date(now.getFullYear(), now.getMonth() + monthOffset, 1);
-  const end = new Date(now.getFullYear(), now.getMonth() + monthOffset + 1, 0);
-  return {
-    start_date: formatDateString(start),
-    end_date: formatDateString(end)
-  };
-}
-
 function getCalendarMonthRange() {
-  return monthRange(0);
-}
-
-function getLastMonthRange() {
-  return monthRange(-1);
+  const now = new Date();
+  return {
+    start_date: formatDateString(new Date(now.getFullYear(), now.getMonth(), 1)),
+    end_date: formatDateString(new Date(now.getFullYear(), now.getMonth() + 1, 0))
+  };
 }
 
 /****************************************************
@@ -524,7 +509,6 @@ function addHeader(mainStack) {
 }
 
 function budgetPeriodLabel() {
-  if (TEMP_SHOW_LAST_MONTH) return MONTHS[(new Date().getMonth() - 1 + 12) % 12].toUpperCase();
   if (USE_PAY_CYCLE) return "CURRENT PAY CYCLE";
   return MONTHS[new Date().getMonth()].toUpperCase();
 }
