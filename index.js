@@ -25,7 +25,7 @@ const BASE_URL = 'https://api.lunchmoney.dev/v2';
 // CACHE_KEY + CACHED_MS: cache file name and how long a fresh copy stays usable
 const BASE_FILE = 'LunchMoneyWidget';
 const API_KEY = "lunchMoneyApiKey";
-const CACHE_KEY = "lunchMoneyCache_v3";
+const CACHE_KEY = "lunchMoneyCache_v4";
 const CACHED_MS = 600000; // 10 minutes
 
 // v2 renamed "uncleared" to "unreviewed"; match either so accounts mid-migration work
@@ -55,7 +55,7 @@ const LM_ACCESS_TOKEN = await getApiKey();
 const widget = await getWidget();
 
 Script.setWidget(widget);
-if (config.runsInApp) {
+if (config.runsInApp && args.widgetParameter != "nopreview") {
   widget.presentMedium();
 }
 Script.complete();
@@ -212,6 +212,8 @@ async function fetchUnreviewedTransactions(range) {
   try {
     const data = await sendLunchMoneyRequest(`${BASE_URL}/transactions`, range);
     const raw = (data && data.transactions) || [];
+    const counts = {};
+    raw.forEach((t) => { counts[t.status] = (counts[t.status] || 0) + 1; });
     const rows = raw
       .filter((t) => !t.is_group_parent && !t.is_group
         && t.status !== "delete_pending"
@@ -224,10 +226,9 @@ async function fetchUnreviewedTransactions(range) {
         amount: t.to_base != null ? t.to_base : parseFloat(t.amount),
         date: t.date
       }));
+    writeDiagnostics(`unreviewed ${range.start_date}..${range.end_date} raw=${raw.length} statuses=${JSON.stringify(counts)} kept=${rows.length}`);
     let diag = null;
     if (rows.length === 0) {
-      const counts = {};
-      raw.forEach((t) => { counts[t.status] = (counts[t.status] || 0) + 1; });
       const detail = Object.keys(counts).length
         ? Object.entries(counts).map(([k, n]) => `${k}:${n}`).join(", ")
         : "no transactions in period";
@@ -235,6 +236,7 @@ async function fetchUnreviewedTransactions(range) {
     }
     return { rows, diag };
   } catch (e) {
+    writeDiagnostics("unreviewed request failed: " + e);
     return { rows: [], diag: "request failed: " + e };
   }
 }
@@ -484,6 +486,22 @@ function readCache(allowStale) {
     return null;
   }
   return null;
+}
+
+// Appends one timestamped line to LunchMoneyWidget/diagnostics.txt in the
+// Scriptable folder, so diagnostics are readable from the Files app even when
+// the in-app preview hides the console
+function writeDiagnostics(line) {
+  try {
+    const fm = FileManager.local();
+    const folder = fm.documentsDirectory() + "/" + BASE_FILE;
+    fm.createDirectory(folder, true);
+    const path = folder + "/diagnostics.txt";
+    const prev = fm.fileExists(path) ? fm.readString(path) : "";
+    fm.writeString(path, prev + new Date().toISOString() + " " + line + "\n");
+  } catch (e) {
+    // never block rendering on diagnostics
+  }
 }
 
 // Persists the latest result to the cache file
