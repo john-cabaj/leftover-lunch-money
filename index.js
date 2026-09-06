@@ -68,7 +68,7 @@ Script.complete();
 async function getWidget() {
   const widget = new ListWidget();
   widget.title = "Lunch Money";
-  widget.setPadding(14, 8, 14, 8);
+  widget.setPadding(14, 4, 14, 4);
   widget.backgroundGradient = getLinearGradient(COLORS.bg1, COLORS.bg2);
 
   const widgetFamily = config.widgetFamily;
@@ -674,7 +674,6 @@ function addTransactionRow(parent, t, config) {
   const amount = top.addText(formatMoney(t.amount));
   amount.font = new Font(FONT_NAME, fontSize);
   amount.lineLimit = 1;
-  amount.minimumScaleFactor = 0.5;
   amount.textColor = t.amount < 0 ? new Color(LOSS_RED) : regularColor;
 
   const stamp = block.addText(t.date);
