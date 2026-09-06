@@ -8,6 +8,10 @@ const COLORS = {
   error2: '#080000'
 };
 
+const BRAND_GREEN = '#44958C';
+const BRAND_YELLOW = '#FBB700';
+const LOSS_RED = '#E15554';
+
 const FONT_NAME = "Menlo"
 const regularFont = new Font(FONT_NAME, 11);
 const smallFont = new Font(FONT_NAME, 9);
@@ -50,6 +54,7 @@ async function getWidget() {
   
   const widget = new ListWidget();
   widget.title = "Lunch Money";
+  widget.backgroundGradient = getLinearGradient(COLORS.bg1, COLORS.bg2);
   
   const mainStack = widget.addStack();
   mainStack.layoutVertically();
@@ -307,40 +312,100 @@ function Cache(storage) {
             Widget Layouts
 *****************************************************/
 
+const FAMILY_LAYOUTS = {
+  small:      { caption: 10, amount: 20, header: false, breakdown: false },
+  medium:     { caption: 11, amount: 26, header: true,  breakdown: false },
+  large:      { caption: 12, amount: 30, header: true,  breakdown: true },
+  extraLarge: { caption: 12, amount: 34, header: true,  breakdown: true },
+  undefined:  { caption: 11, amount: 26, header: false, breakdown: false }
+};
+
 function initLayout()
 {
   let Layout = {};
-  Layout.medium = function(mainStack, lunchMoneyData){
-    // HEADER
-    const headingStack = mainStack.addStack();
-    headingStack.layoutHorizontally();
-    headingStack.addSpacer();
-    const headerText = headingStack.addText(`💰 LUNCH MONEY LEFTOVERS - ${USE_PAY_CYCLE ? "Current Pay cycle" : MONTHS[new Date().getMonth()]} 💰`);
-    headingStack.addSpacer();
-    headerText.font = regularFont;
-    headerText.textColor = regularColor;
-    headerText.centerAlignText();  
-    mainStack.addSpacer(2);
+  for (const family of Object.keys(FAMILY_LAYOUTS)) {
+    const config = FAMILY_LAYOUTS[family];
+    Layout[family] = (mainStack, lunchMoneyData) => renderWidget(mainStack, lunchMoneyData, config);
+  }
+  return Layout;
+}
 
-    // LEFTOVER
-    const savingsStack = mainStack.addStack();
-    savingsStack.layoutHorizontally();
-    const savingsText = savingsStack.addText("🏦");
-    savingsText.font = regularFont;
-    savingsText.textColor = regularColor;
-    savingsStack.addSpacer();
-    const savingsNum = savingsStack.addText(formatMoney(lunchMoneyData.savings));
-    savingsNum.font = regularFont;
-    savingsNum.textColor = lunchMoneyData.savings < 0 ? Color.red() : Color.green();
-    savingsNum.rightAlignText();
-
-    mainStack.addSpacer();
+function renderWidget(mainStack, data, config) {
+  if (config.header) {
+    addHeader(mainStack);
+    mainStack.addSpacer(6);
   }
 
-  Layout.small = Layout.medium;
-  Layout.large = Layout.medium;
-  Layout.extraLarge = Layout.large;
-  //when running the script from the app config.widgetFamily is undefined, don't excute layout logic in that case
-  Layout.undefined = function(mainStack, lunchMoneyData){};
-  return Layout;
+  addCaption(mainStack, "Leftover", config.caption);
+  addAmount(mainStack, data.savings, config.amount);
+
+  if (config.breakdown) {
+    mainStack.addSpacer(10);
+    addBreakdown(mainStack, data);
+  } else {
+    mainStack.addSpacer();
+  }
+}
+
+function addHeader(mainStack) {
+  const titleRow = mainStack.addStack();
+  titleRow.layoutHorizontally();
+  titleRow.addSpacer();
+  const title = titleRow.addText("LUNCH MONEY");
+  title.font = Font.semiboldSystemFont(11);
+  title.textColor = new Color(BRAND_GREEN);
+  title.centerAlignText();
+  titleRow.addSpacer();
+
+  const periodRow = mainStack.addStack();
+  periodRow.layoutHorizontally();
+  periodRow.addSpacer();
+  const period = periodRow.addText(USE_PAY_CYCLE ? "CURRENT PAY CYCLE" : MONTHS[new Date().getMonth()].toUpperCase());
+  period.font = smallFont;
+  period.textColor = regularColor;
+  period.centerAlignText();
+  periodRow.addSpacer();
+}
+
+function addCaption(mainStack, text, size) {
+  const row = mainStack.addStack();
+  row.layoutHorizontally();
+  row.addSpacer();
+  const caption = row.addText(text);
+  caption.font = new Font(FONT_NAME, size);
+  caption.textColor = new Color(BRAND_YELLOW);
+  caption.centerAlignText();
+  row.addSpacer();
+}
+
+function addAmount(mainStack, value, size) {
+  const row = mainStack.addStack();
+  row.layoutHorizontally();
+  row.addSpacer();
+  const amount = row.addText(formatMoney(value));
+  amount.font = new Font("Menlo-Bold", size);
+  amount.textColor = value < 0 ? new Color(LOSS_RED) : new Color(BRAND_GREEN);
+  amount.centerAlignText();
+  row.addSpacer();
+}
+
+function addBreakdown(mainStack, data) {
+  addDetailRow(mainStack, "Inflow", data.inflow);
+  addDetailRow(mainStack, "Outflow", data.outflow);
+  addDetailRow(mainStack, "Budgeted", data.budgeted);
+  addDetailRow(mainStack, "Overspend", data.overspend);
+}
+
+function addDetailRow(mainStack, label, value) {
+  const row = mainStack.addStack();
+  row.layoutHorizontally();
+  const labelText = row.addText(label);
+  labelText.font = smallFont;
+  labelText.textColor = regularColor;
+  labelText.textOpacity = 0.6;
+  row.addSpacer(8);
+  const valueText = row.addText(formatMoney(value));
+  valueText.font = smallFont;
+  valueText.textColor = regularColor;
+  valueText.rightAlignText();
 }
