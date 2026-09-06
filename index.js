@@ -37,8 +37,8 @@ const USE_PAY_CYCLE = args.widgetParameter != null;
 // Per-widget-family appearance. undefined covers running in the app/preview.
 const FAMILY_LAYOUTS = {
   small:      { layout: "stacked", caption: 11, inflowAmount: 20, leftoverAmount: 25 },
-  medium:     { layout: "columns", header: true, caption: 12, amount: 26, metricWidth: 100 },
-  large:      { layout: "stacked", caption: 16, inflowAmount: 34, leftoverAmount: 42 },
+  medium:     { layout: "review", header: true, caption: 10, amount: 20, leftoverAmount: 24, detailFont: 9, payeeLen: 14, maxUnreviewed: 4 },
+  large:      { layout: "overview", header: true, caption: 14, amount: 30, metricWidth: 120, detailFont: 12, payeeLen: 26, maxUnreviewed: 7 },
   extraLarge: { layout: "breakdown", header: true, caption: 15, amount: 46, detailFont: 11 },
   undefined:  { layout: "stacked", caption: 11, inflowAmount: 20, leftoverAmount: 25 }
 };
@@ -175,7 +175,8 @@ async function getApiKey() {
   return apiKey;
 }
 
-// Fetches the summary + categories for the current budget period and computes leftovers
+// Fetches the summary + categories for the current budget period, computes leftovers,
+// and pulls the latest unreviewed transactions in the same range
 async function lunchMoneyLeftoverInfo() {
   if (!LM_ACCESS_TOKEN) {
     return null;
@@ -185,15 +186,38 @@ async function lunchMoneyLeftoverInfo() {
     // Prefer the configured budget period; fall back to the calendar month
     const range = getCurrentBudgetPeriod(settings) || getCalendarMonthRange();
     const params = { ...range, include_totals: true, include_rollover_pool: true };
-    const [summary, categories] = await Promise.all([
+    const [summary, categories, unreviewed] = await Promise.all([
       sendLunchMoneyRequest(`${BASE_URL}/summary`, params),
-      sendLunchMoneyRequest(`${BASE_URL}/categories`)
+      sendLunchMoneyRequest(`${BASE_URL}/categories`),
+      fetchUnreviewedTransactions(range)
     ]);
-    const result = computeLeftover(summary, categories);
-    return result;
+    return { ...computeLeftover(summary, categories), unreviewed };
   } catch (e) {
     console.error(e);
     return null;
+  }
+}
+
+// Recent transactions awaiting review in the period, newest first
+async function fetchUnreviewedTransactions(range) {
+  try {
+    const data = await sendLunchMoneyRequest(`${BASE_URL}/transactions`, {
+      ...range,
+      status: "unreviewed"
+    });
+    return (data && data.transactions || [])
+      .filter((t) => !t.is_group && !t.is_pending)
+      .sort((a, b) => (b.date === a.date
+        ? (b.created_at || "").localeCompare(a.created_at || "")
+        : b.date.localeCompare(a.date)))
+      .map((t) => ({
+        payee: t.display_name || t.payee || "Unknown",
+        amount: t.to_base != null ? t.to_base : parseFloat(t.amount),
+        date: t.date
+      }));
+  } catch (e) {
+    console.error(e);
+    return [];
   }
 }
 
@@ -456,17 +480,23 @@ function writeCache(data) {
             Widget Layouts
 *****************************************************/
 
-// Top-level renderer: picks stacked / columns / breakdown from the family config
+// Top-level renderer: picks stacked / review / overview / breakdown layouts
 function renderWidget(mainStack, data, config) {
   switch (config.layout) {
     case "stacked":
       addStackedMetrics(mainStack, data, config);
       mainStack.addSpacer();
       break;
-    case "columns":
+    case "review":
       addHeader(mainStack);
       mainStack.addSpacer(6);
-      addMetricRow(mainStack, data, config);
+      addReviewSplit(mainStack, data, config);
+      mainStack.addSpacer();
+      break;
+    case "overview":
+      addHeader(mainStack);
+      mainStack.addSpacer(8);
+      addOverview(mainStack, data, config);
       mainStack.addSpacer();
       break;
     default:
@@ -481,7 +511,7 @@ function renderWidget(mainStack, data, config) {
   }
 }
 
-// Inflow / Outflow / Leftover stacked vertically (small, large, in-app preview)
+// Inflow / Outflow / Leftover stacked vertically (small, in-app preview)
 function addStackedMetrics(mainStack, data, config) {
   addCaption(mainStack, "Inflow", config.caption);
   addAmount(mainStack, Math.abs(data.inflow), config.inflowAmount, regularColor);
@@ -491,9 +521,9 @@ function addStackedMetrics(mainStack, data, config) {
   addAmount(mainStack, data.savings, config.leftoverAmount);
 }
 
-// Medium layout: three side-by-side metric columns
-function addMetricRow(mainStack, data, config) {
-  const row = mainStack.addStack();
+// Inflow / Leftover / Outflow across the width as three columns
+function addMetricRow(parent, data, config) {
+  const row = parent.addStack();
   row.layoutHorizontally();
   row.addSpacer();
   addMetricColumn(row, "Inflow", Math.abs(data.inflow), config);
@@ -532,6 +562,95 @@ function addMetricColumn(parentRow, label, value, config) {
     : regularColor;
   valueText.centerAlignText();
   valueRow.addSpacer();
+}
+
+// Large layout: metric columns across the width plus the unreviewed list below
+function addOverview(mainStack, data, config) {
+  addMetricRow(mainStack, data, config);
+  mainStack.addSpacer(14);
+  addCaption(mainStack, "Unreviewed", config.caption);
+  const items = (data.unreviewed || []).slice(0, config.maxUnreviewed || 7);
+  if (items.length === 0) {
+    const empty = mainStack.addText("None");
+    empty.font = new Font(FONT_NAME, config.detailFont || 11);
+    empty.textColor = regularColor;
+    empty.textOpacity = 0.6;
+    empty.centerAlignText();
+  } else {
+    items.forEach((t) => addTransactionRow(mainStack, t, config));
+  }
+}
+
+// Medium layout: stacked leftovers on the left, latest unreviewed transactions on the right
+function addReviewSplit(mainStack, data, config) {
+  const row = mainStack.addStack();
+  row.layoutHorizontally();
+  row.addSpacer(2);
+
+  const left = row.addStack();
+  left.layoutVertically();
+  left.addSpacer();
+  addCaption(left, "Inflow", config.caption);
+  addAmount(left, Math.abs(data.inflow), config.amount, regularColor);
+  addCaption(left, "Outflow", config.caption);
+  addAmount(left, data.outflow, config.amount, regularColor);
+  addCaption(left, "Leftover", config.caption);
+  addAmount(left, data.savings, config.leftoverAmount || config.amount);
+  left.addSpacer();
+
+  row.addSpacer(12);
+
+  const right = row.addStack();
+  right.layoutVertically();
+  right.addSpacer();
+  addCaption(right, "Unreviewed", config.caption);
+  const items = (data.unreviewed || []).slice(0, config.maxUnreviewed || 4);
+  if (items.length === 0) {
+    const empty = right.addText("None");
+    empty.font = new Font(FONT_NAME, config.detailFont || 9);
+    empty.textColor = regularColor;
+    empty.textOpacity = 0.6;
+  } else {
+    items.forEach((t) => addTransactionRow(right, t, config));
+  }
+  right.addSpacer();
+  row.addSpacer(2);
+}
+
+// One unreviewed transaction: payee + amount on top, date underneath
+function addTransactionRow(parent, t, config) {
+  const block = parent.addStack();
+  block.layoutVertically();
+
+  const top = block.addStack();
+  top.layoutHorizontally();
+  top.addSpacer(0);
+  const fontSize = config.detailFont || 9;
+  const payee = top.addText(clip(t.payee, config.payeeLen || 16));
+  payee.font = new Font(FONT_NAME, fontSize);
+  payee.textColor = regularColor;
+  payee.lineLimit = 1;
+  top.addSpacer(6);
+  const amount = top.addText(formatMoney(t.amount));
+  amount.font = new Font("Menlo-Bold", fontSize);
+  amount.lineLimit = 1;
+  amount.minimumScaleFactor = 0.5;
+  amount.textColor = t.amount < 0 ? new Color(LOSS_RED) : regularColor;
+  amount.rightAlignText();
+  top.addSpacer(0);
+
+  const stamp = block.addText(t.date);
+  stamp.font = new Font(FONT_NAME, Math.max(7, fontSize - 2));
+  stamp.textColor = regularColor;
+  stamp.textOpacity = 0.5;
+
+  parent.addSpacer(3);
+}
+
+// Truncate to max characters, hinting overflow with an ellipsis
+function clip(text, max) {
+  const t = String(text || "");
+  return t.length > max ? t.slice(0, max - 1) + "…" : t;
 }
 
 // Title + budget period label row used by medium and extraLarge layouts
