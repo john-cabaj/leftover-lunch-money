@@ -12,6 +12,8 @@ const BRAND_GREEN = '#44958C';
 const BRAND_YELLOW = '#FBB700';
 const LOSS_RED = '#E15554';
 
+let DEBUG_LINES = [];
+
 const FONT_NAME = "Menlo"
 const regularFont = new Font(FONT_NAME, 11);
 const smallFont = new Font(FONT_NAME, 9);
@@ -190,8 +192,6 @@ async function getApiKey() {
   }
   return null;
 }
-
-let DEBUG_LINES = [];
 
 async function lunchMoneyLeftoverInfo() {
   if (!LM_ACCESS_TOKEN) {
