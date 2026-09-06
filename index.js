@@ -54,6 +54,9 @@ const LM_ACCESS_TOKEN = await getApiKey();
 const widget = await getWidget();
 
 Script.setWidget(widget);
+if (config.runsInApp) {
+  widget.presentMedium();
+}
 Script.complete();
 
 /****************************************************
@@ -207,8 +210,8 @@ async function lunchMoneyLeftoverInfo() {
       sendLunchMoneyRequest(`${BASE_URL}/categories`)
     ]);
     const result = computeLeftover(summary, categories);
-    console.log("Leftover summary:", JSON.stringify(result));
-    console.log("raw totals:", JSON.stringify(summary.totals));
+    console.log("Leftover summary: " + JSON.stringify(result));
+    console.log("raw totals: " + JSON.stringify(summary.totals));
     DEBUG_LINES = buildCategoryDebugLines(summary, categories, result);
     DEBUG_LINES.forEach((line) => console.log("category detail: " + line));
     return result;
