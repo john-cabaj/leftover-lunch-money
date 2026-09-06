@@ -67,12 +67,10 @@ async function getAllData() {
     return JSON.parse(cached);
   }
   
-  const responses = await Promise.all([
-    lunchMoneyLeftoverInfo(),
-  ])
+  const data = await lunchMoneyLeftoverInfo();
 
   // if not internet connection load data from cache
-  if(!responses[0]){
+  if(!data){
     return JSON.parse(cache.forceGet(CACHE_KEY));
   }
   
@@ -115,17 +113,73 @@ async function getApiKey() {
 }
 
 async function lunchMoneyLeftoverInfo() {
-  const url = `${BASE_URL}/summary`;
-  params = getStartAndEndDateForPayCycle();
+  const params = getStartAndEndDateForPayCycle();
+  params.include_totals = true;
+  params.include_rollover_pool = true;
   try {
-    log("here");
-    const response = await sendLunchMoneyRequest(url, params);
-    log("there");
-    return response.transactions.length;
+    const [summary, categories] = await Promise.all([
+      sendLunchMoneyRequest(`${BASE_URL}/summary`, params),
+      sendLunchMoneyRequest(`${BASE_URL}/categories`)
+    ]);
+    return computeLeftover(summary, categories);
   } catch (e) {
     console.error(e);
     return null;
   }
+}
+
+function computeLeftover(summary, categories) {
+  const inflow = totalFromBreakdown(summary.totals && summary.totals.inflow);
+  const categoryInfo = buildCategoryInfo(categories);
+
+  let budgeted = 0;
+  let overspend = 0;
+  for (const entry of (summary.categories || [])) {
+    const info = categoryInfo[entry.category_id];
+    if (info && info.isIncome) continue;
+    if (info && info.groupId != null) continue;
+
+    const initialBudget = entry.totals.budgeted;
+    if (initialBudget == null) continue;
+
+    budgeted += initialBudget;
+    const activity = (entry.totals.other_activity || 0) + (entry.totals.recurring_activity || 0);
+    const rollover = entry.rollover_pool ? (entry.rollover_pool.budgeted_to_base || 0) : 0;
+    overspend += Math.max(0, activity - (initialBudget + rollover));
+  }
+
+  const outflow = budgeted + overspend;
+  const leftover = inflow - outflow;
+  return {
+    inflow,
+    outflow,
+    budgeted,
+    overspend,
+    savings: leftover
+  };
+}
+
+function totalFromBreakdown(breakdown) {
+  if (!breakdown) return 0;
+  return (breakdown.other_activity || 0)
+       + (breakdown.recurring_activity || 0)
+       + (breakdown.recurring_remaining || 0)
+       + (breakdown.uncategorized || 0);
+}
+
+function buildCategoryInfo(categories) {
+  const info = {};
+  const add = (category) => {
+    info[category.id] = {
+      isIncome: category.is_income,
+      groupId: category.group_id != null ? category.group_id : null
+    };
+    if (Array.isArray(category.children)) {
+      category.children.forEach(add);
+    }
+  };
+  (categories.categories || []).forEach(add);
+  return info;
 }
 
 function sendLunchMoneyRequest(url, params = {}) {
@@ -164,16 +218,19 @@ function sendHTTPRequest(url, params, headers, method = 'GET') {
             Utilities
 *****************************************************/
 
+function formatMoney(value) {
+  const abs = Math.abs(value).toFixed(2);
+  return (value < 0 ? "-" : "") + "$" + abs;
+}
+
 function getStartAndEndDateForPayCycle() {
   const now = new Date();
-  let month = now.getMonth();
-  let day = now.getDate();
-  if(day<10)day="0"+day;
-  const prevMonthStr = month < 10 ? "0" + month : month;
-  month++;
+  const month = now.getMonth() + 1;
+  const day = now.getDate();
   const currentMonthStr = month < 10 ? "0" + month : month;
-  const start_date = `${now.getFullYear()}-${prevMonthStr}-01`;
-  const end_date = `${now.getFullYear()}-${currentMonthStr}-${day}`;
+  const dayStr = day < 10 ? "0" + day : day;
+  const start_date = `${now.getFullYear()}-${currentMonthStr}-01`;
+  const end_date = `${now.getFullYear()}-${currentMonthStr}-${dayStr}`;
   return {start_date, end_date};
 }
 
@@ -272,14 +329,16 @@ function initLayout()
     savingsText.font = regularFont;
     savingsText.textColor = regularColor;
     savingsStack.addSpacer();
-    const savingsNum = savingsStack.addText(lunchMoneyData.savings);
+    const savingsNum = savingsStack.addText(formatMoney(lunchMoneyData.savings));
     savingsNum.font = regularFont;
-    savingsNum.textColor = lunchMoneyData.savings?.startsWith('-') ? Color.red() : Color.green();
+    savingsNum.textColor = lunchMoneyData.savings < 0 ? Color.red() : Color.green();
     savingsNum.rightAlignText();
 
     mainStack.addSpacer();
   }
 
+  Layout.small = Layout.medium;
+  Layout.large = Layout.medium;
   Layout.extraLarge = Layout.large;
   //when running the script from the app config.widgetFamily is undefined, don't excute layout logic in that case
   Layout.undefined = function(mainStack, lunchMoneyData){};
