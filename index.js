@@ -68,7 +68,7 @@ Script.complete();
 async function getWidget() {
   const widget = new ListWidget();
   widget.title = "Lunch Money";
-  widget.setPadding(14, 4, 14, 4);
+  widget.setPadding(14, 10, 14, 10);
   widget.backgroundGradient = getLinearGradient(COLORS.bg1, COLORS.bg2);
 
   const widgetFamily = config.widgetFamily;
@@ -671,12 +671,13 @@ function addTransactionRow(parent, t, config) {
   payee.textColor = regularColor;
   payee.lineLimit = 1;
   top.addSpacer();
-  // Inflows show a "+" in green, outflows a "-" in red
-  const isInflow = t.amount >= 0;
+  // Lunch Money stores expenses as positive and income as negative; expenses
+  // get a "-" in red, income a "+" in regular green
+  const isInflow = t.amount < 0;
   const amount = top.addText((isInflow ? "+" : "-") + formatMoney(Math.abs(t.amount)));
   amount.font = new Font(FONT_NAME, fontSize);
   amount.lineLimit = 1;
-  amount.textColor = isInflow ? new Color(BRAND_GREEN) : new Color(LOSS_RED);
+  amount.textColor = isInflow ? new Color('#34C759') : new Color('#FF3B30');
 
   const stamp = block.addText(t.date);
   stamp.font = new Font(FONT_NAME, Math.max(7, fontSize - 2));
@@ -697,7 +698,7 @@ function addHeader(mainStack) {
   const titleRow = mainStack.addStack();
   titleRow.layoutHorizontally();
   titleRow.addSpacer();
-  const title = titleRow.addText("LUNCH MONEY v8");
+  const title = titleRow.addText("LUNCH MONEY v9");
   title.font = Font.boldSystemFont(12);
   title.textColor = new Color(BRAND_GREEN);
   title.centerAlignText();
