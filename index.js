@@ -28,6 +28,9 @@ const API_KEY = "lunchMoneyApiKey";
 const CACHE_KEY = "lunchMoneyCache_v3";
 const CACHED_MS = 600000; // 10 minutes
 
+// v2 renamed "uncleared" to "unreviewed"; match either so accounts mid-migration work
+const UNREVIEWED_STATUSES = ["unreviewed", "uncleared"];
+
 // Month names for the header label
 const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 
@@ -176,7 +179,7 @@ async function getApiKey() {
 }
 
 // Fetches the summary + categories for the current budget period, computes leftovers,
-// and pulls the latest unreviewed transactions (all time, newest first)
+// and pulls the latest unreviewed transactions in the same range
 async function lunchMoneyLeftoverInfo() {
   if (!LM_ACCESS_TOKEN) {
     return null;
@@ -189,7 +192,7 @@ async function lunchMoneyLeftoverInfo() {
     const [summary, categories, unreviewed] = await Promise.all([
       sendLunchMoneyRequest(`${BASE_URL}/summary`, params),
       sendLunchMoneyRequest(`${BASE_URL}/categories`),
-      fetchUnreviewedTransactions()
+      fetchUnreviewedTransactions(range)
     ]);
     return {
       ...computeLeftover(summary, categories),
@@ -202,15 +205,17 @@ async function lunchMoneyLeftoverInfo() {
   }
 }
 
-// Latest transactions awaiting review across the whole account, newest first
-async function fetchUnreviewedTransactions() {
+// Recent transactions awaiting review in the period, newest first. Filters client-side
+// so both v1 ("uncleared") and v2 ("unreviewed") statuses are recognized, and reports a
+// status breakdown when nothing matches
+async function fetchUnreviewedTransactions(range) {
   try {
-    const data = await sendLunchMoneyRequest(`${BASE_URL}/transactions`, {
-      status: "unreviewed"
-    });
+    const data = await sendLunchMoneyRequest(`${BASE_URL}/transactions`, range);
     const raw = (data && data.transactions) || [];
     const rows = raw
-      .filter((t) => !t.is_group_parent && !t.is_group)
+      .filter((t) => !t.is_group_parent && !t.is_group
+        && t.status !== "delete_pending"
+        && (UNREVIEWED_STATUSES.includes(t.status) || t.is_pending === true))
       .sort((a, b) => (b.date === a.date
         ? (b.created_at || "").localeCompare(a.created_at || "")
         : b.date.localeCompare(a.date)))
@@ -220,11 +225,13 @@ async function fetchUnreviewedTransactions() {
         date: t.date
       }));
     let diag = null;
-    if (raw.length === 0) {
-      const body = data && !Array.isArray(data) ? JSON.stringify(data).slice(0, 120) : "";
-      diag = `no unreviewed anywhere${body ? " — " + body : ""}`;
-    } else if (rows.length === 0) {
-      diag = `all ${raw.length} unreviewed were grouped`;
+    if (rows.length === 0) {
+      const counts = {};
+      raw.forEach((t) => { counts[t.status] = (counts[t.status] || 0) + 1; });
+      const detail = Object.keys(counts).length
+        ? Object.entries(counts).map(([k, n]) => `${k}:${n}`).join(", ")
+        : "no transactions in period";
+      diag = `no unreviewed (${detail})`;
     }
     return { rows, diag };
   } catch (e) {
