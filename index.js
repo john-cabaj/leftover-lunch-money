@@ -27,6 +27,9 @@ const API_FILE = "apiKey";
 const CACHE_KEY = "lunchMoneyCache_v2";
 const CACHED_MS = 600000; // 10 minutes
 
+// TEMPORARY: set to false and it returns to the current budget period
+const TEMP_SHOW_LAST_MONTH = true;
+
 const LOCAL = "local";
 const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 
@@ -177,7 +180,9 @@ async function lunchMoneyLeftoverInfo() {
   }
   try {
     const settings = await sendLunchMoneyRequest(`${BASE_URL}/budgets/settings`);
-    const range = getCurrentBudgetPeriod(settings) || getCalendarMonthRange();
+    const range = TEMP_SHOW_LAST_MONTH
+      ? getLastMonthRange()
+      : (getCurrentBudgetPeriod(settings) || getCalendarMonthRange());
     const params = range;
     params.include_totals = true;
     params.include_rollover_pool = true;
@@ -402,6 +407,16 @@ function getCalendarMonthRange() {
   };
 }
 
+function getLastMonthRange() {
+  const now = new Date();
+  const start = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const end = new Date(now.getFullYear(), now.getMonth(), 0);
+  return {
+    start_date: formatDateString(start),
+    end_date: formatDateString(end)
+  };
+}
+
 /****************************************************
             File Management
 *****************************************************/
@@ -568,7 +583,11 @@ function addHeader(mainStack) {
   const periodRow = mainStack.addStack();
   periodRow.layoutHorizontally();
   periodRow.addSpacer();
-  const period = periodRow.addText(USE_PAY_CYCLE ? "CURRENT PAY CYCLE" : MONTHS[new Date().getMonth()].toUpperCase());
+  const period = periodRow.addText(
+    TEMP_SHOW_LAST_MONTH
+      ? MONTHS[(new Date().getMonth() - 1 + 12) % 12].toUpperCase()
+      : (USE_PAY_CYCLE ? "CURRENT PAY CYCLE" : MONTHS[new Date().getMonth()].toUpperCase())
+  );
   period.font = regularFont;
   period.textColor = regularColor;
   period.centerAlignText();
