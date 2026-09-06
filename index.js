@@ -533,7 +533,6 @@ function renderWidget(mainStack, data, config) {
   switch (config.layout) {
     case "stacked":
       addStackedMetrics(mainStack, data, config);
-      mainStack.addSpacer();
       break;
     case "review":
       addHeader(mainStack);
@@ -563,10 +562,11 @@ function renderWidget(mainStack, data, config) {
 }
 
 // Inflow / Outflow / Leftover stacked vertically (small, in-app preview);
-// the metrics open the Budget page, everything else falls to transactions
+// the whole section spans the widget and opens the Budget page
 function addStackedMetrics(parent, data, config) {
   const stack = parent.addStack();
   stack.layoutVertically();
+  stack.layoutWeight = 1;
   stack.url = BUDGET_URL;
   addCaption(stack, "Inflow", config.caption);
   addAmount(stack, Math.abs(data.inflow), config.inflowAmount, regularColor);
