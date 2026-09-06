@@ -193,7 +193,7 @@ async function lunchMoneyLeftoverInfo() {
     const result = computeLeftover(summary, categories);
     if (!config.widgetFamily && result) {
       console.log("Leftover summary:", JSON.stringify(result));
-      console.log("inflow totals:", JSON.stringify(summary.totals && summary.totals.inflow));
+      console.log("raw totals:", JSON.stringify(summary.totals));
     }
     return result;
   } catch (e) {
@@ -207,7 +207,7 @@ function computeLeftover(summary, categories) {
     return null;
   }
 
-  const inflow = totalFromBreakdown(summary.totals && summary.totals.inflow);
+  const inflow = Math.abs(totalFromBreakdown(summary.totals && summary.totals.inflow));
   const categoryInfo = buildCategoryInfo(categories);
 
   const rows = summary.categories.filter((entry) => {
