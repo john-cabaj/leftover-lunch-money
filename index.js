@@ -21,6 +21,10 @@ const regularColor = Color.white();
 // Lunch Money API base URL
 const BASE_URL = 'https://api.lunchmoney.dev/v2';
 
+// Tap targets: open the native app when installed, otherwise the web app
+const BUDGET_URL = 'https://my.lunchmoney.app/budget';
+const TRANSACTIONS_URL = 'https://my.lunchmoney.app/transactions';
+
 // BASE_FILE: folder for cached data; API_KEY: Keychain entry for the API token;
 // CACHE_KEY + CACHED_MS: cache file name and how long a fresh copy stays usable
 const BASE_FILE = 'LunchMoneyWidget';
@@ -543,6 +547,7 @@ function renderWidget(mainStack, data, config) {
     default:
       addHeader(mainStack);
       mainStack.addSpacer(6);
+      mainStack.url = BUDGET_URL;
       addCaption(mainStack, "Leftover", config.caption);
       addAmount(mainStack, data.savings, config.amount);
       mainStack.addSpacer(10);
@@ -552,8 +557,10 @@ function renderWidget(mainStack, data, config) {
   }
 }
 
-// Inflow / Outflow / Leftover stacked vertically (small, in-app preview)
+// Inflow / Outflow / Leftover stacked vertically (small, in-app preview);
+// the whole section opens the Budget page
 function addStackedMetrics(mainStack, data, config) {
+  mainStack.url = BUDGET_URL;
   addCaption(mainStack, "Inflow", config.caption);
   addAmount(mainStack, Math.abs(data.inflow), config.inflowAmount, regularColor);
   addCaption(mainStack, "Outflow", config.caption);
@@ -569,6 +576,7 @@ function addMetricRow(parent, data, config) {
   addMetricColumn(row, "Inflow", Math.abs(data.inflow), config);
   addMetricColumn(row, "Leftover", data.savings, config);
   addMetricColumn(row, "Outflow", data.outflow, config);
+  return row;
 }
 
 // One metric column; layoutWeight divides the row equally so it scales across sizes
@@ -604,12 +612,14 @@ function addMetricColumn(parentRow, label, value, config) {
 
 // Large layout: metric columns across the width plus the unreviewed list below
 function addOverview(mainStack, data, config) {
-  addMetricRow(mainStack, data, config);
+  const metricRow = addMetricRow(mainStack, data, config);
+  metricRow.url = BUDGET_URL;
   mainStack.addSpacer(14);
   addCaption(mainStack, "Unreviewed", config.caption);
   const list = mainStack.addStack();
   list.layoutVertically();
   list.layoutWeight = 1;
+  list.url = TRANSACTIONS_URL;
   const items = (data.unreviewed || []).slice(0, config.maxUnreviewed || 7);
   if (items.length === 0) {
     addUnreviewedEmpty(list, data.unreviewedDiag, config);
@@ -626,6 +636,7 @@ function addReviewSplit(mainStack, data, config) {
   const left = row.addStack();
   left.layoutVertically();
   left.layoutWeight = config.metricsWeight || 46;
+  left.url = BUDGET_URL;
   addCaption(left, "Inflow", config.caption);
   addAmount(left, Math.abs(data.inflow), config.amount, regularColor);
   addCaption(left, "Outflow", config.caption);
@@ -637,6 +648,7 @@ function addReviewSplit(mainStack, data, config) {
   const right = row.addStack();
   right.layoutVertically();
   right.layoutWeight = 100 - (config.metricsWeight || 46);
+  right.url = TRANSACTIONS_URL;
   addCaption(right, "Unreviewed", config.caption);
   const items = (data.unreviewed || []).slice(0, config.maxUnreviewed || 4);
   if (items.length === 0) {
@@ -698,7 +710,7 @@ function addHeader(mainStack) {
   const titleRow = mainStack.addStack();
   titleRow.layoutHorizontally();
   titleRow.addSpacer();
-  const title = titleRow.addText("LUNCH MONEY v9");
+  const title = titleRow.addText("LUNCH MONEY v10");
   title.font = Font.boldSystemFont(12);
   title.textColor = new Color(BRAND_GREEN);
   title.centerAlignText();
