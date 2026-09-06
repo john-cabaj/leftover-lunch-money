@@ -34,11 +34,11 @@ const USE_PAY_CYCLE = args.widgetParameter != null
 const PAY_CYCLE_ID = args.widgetParameter;
 
 const FAMILY_LAYOUTS = {
-  small:      { caption: 10, amount: 20, header: false, breakdown: false },
-  medium:     { caption: 11, amount: 26, header: true,  breakdown: false },
-  large:      { caption: 12, amount: 30, header: true,  breakdown: true },
-  extraLarge: { caption: 12, amount: 34, header: true,  breakdown: true },
-  undefined:  { caption: 11, amount: 26, header: false, breakdown: false }
+  small:      { layout: "stacked", caption: 9,  inflowAmount: 15, leftoverAmount: 18 },
+  medium:     { layout: "columns", header: true, caption: 11, amount: 22 },
+  large:      { layout: "breakdown", header: true, caption: 12, amount: 30 },
+  extraLarge: { layout: "breakdown", header: true, caption: 12, amount: 34 },
+  undefined:  { layout: "stacked", caption: 9,  inflowAmount: 15, leftoverAmount: 18 }
 };
 
 /****************************************************
@@ -381,20 +381,73 @@ function initLayout()
 }
 
 function renderWidget(mainStack, data, config) {
-  if (config.header) {
-    addHeader(mainStack);
-    mainStack.addSpacer(6);
+  switch (config.layout) {
+    case "stacked":
+      addStackedMetrics(mainStack, data, config);
+      mainStack.addSpacer();
+      break;
+    case "columns":
+      addHeader(mainStack);
+      mainStack.addSpacer(6);
+      addMetricRow(mainStack, data, config);
+      mainStack.addSpacer();
+      break;
+    default:
+      addHeader(mainStack);
+      mainStack.addSpacer(6);
+      addCaption(mainStack, "Leftover", config.caption);
+      addAmount(mainStack, data.savings, config.amount);
+      mainStack.addSpacer(10);
+      addBreakdown(mainStack, data);
+      mainStack.addSpacer();
+      break;
   }
+}
 
+function addStackedMetrics(mainStack, data, config) {
+  addCaption(mainStack, "Inflow", config.caption);
+  addAmount(mainStack, data.inflow, config.inflowAmount, regularColor);
+  addCaption(mainStack, "Outflow", config.caption);
+  addAmount(mainStack, data.outflow, config.inflowAmount, regularColor);
   addCaption(mainStack, "Leftover", config.caption);
-  addAmount(mainStack, data.savings, config.amount);
+  addAmount(mainStack, data.savings, config.leftoverAmount);
+}
 
-  if (config.breakdown) {
-    mainStack.addSpacer(10);
-    addBreakdown(mainStack, data);
-  } else {
-    mainStack.addSpacer();
-  }
+function addMetricRow(mainStack, data, config) {
+  const row = mainStack.addStack();
+  row.layoutHorizontally();
+  row.addSpacer();
+  addMetricColumn(row, "Inflow", data.inflow, config);
+  row.addSpacer();
+  addMetricColumn(row, "Leftover", data.savings, config);
+  row.addSpacer();
+  addMetricColumn(row, "Outflow", data.outflow, config);
+  row.addSpacer();
+}
+
+function addMetricColumn(parentRow, label, value, config) {
+  const col = parentRow.addStack();
+  col.layoutVertically();
+
+  const labelRow = col.addStack();
+  labelRow.layoutHorizontally();
+  labelRow.addSpacer();
+  const labelText = labelRow.addText(label);
+  labelText.font = new Font(FONT_NAME, config.caption);
+  labelText.textColor = new Color(BRAND_YELLOW);
+  labelText.centerAlignText();
+  labelRow.addSpacer();
+
+  const valueRow = col.addStack();
+  valueRow.layoutHorizontally();
+  valueRow.addSpacer();
+  const valueText = valueRow.addText(formatMoney(value));
+  valueText.font = new Font("Menlo-Bold", config.amount);
+  valueText.textColor = label === "Leftover"
+    ? (value < 0 ? new Color(LOSS_RED) : new Color(BRAND_GREEN))
+    : regularColor;
+  valueText.centerAlignText();
+  valueRow.addSpacer();
 }
 
 function addHeader(mainStack) {
@@ -428,13 +481,13 @@ function addCaption(mainStack, text, size) {
   row.addSpacer();
 }
 
-function addAmount(mainStack, value, size) {
+function addAmount(mainStack, value, size, colorOverride) {
   const row = mainStack.addStack();
   row.layoutHorizontally();
   row.addSpacer();
   const amount = row.addText(formatMoney(value));
   amount.font = new Font("Menlo-Bold", size);
-  amount.textColor = value < 0 ? new Color(LOSS_RED) : new Color(BRAND_GREEN);
+  amount.textColor = colorOverride || (value < 0 ? new Color(LOSS_RED) : new Color(BRAND_GREEN));
   amount.centerAlignText();
   row.addSpacer();
 }
