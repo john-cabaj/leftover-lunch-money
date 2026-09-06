@@ -33,6 +33,14 @@ const MONTHS = ["January", "February", "March", "April", "May", "June", "July", 
 const USE_PAY_CYCLE = args.widgetParameter != null
 const PAY_CYCLE_ID = args.widgetParameter;
 
+const FAMILY_LAYOUTS = {
+  small:      { caption: 10, amount: 20, header: false, breakdown: false },
+  medium:     { caption: 11, amount: 26, header: true,  breakdown: false },
+  large:      { caption: 12, amount: 30, header: true,  breakdown: true },
+  extraLarge: { caption: 12, amount: 34, header: true,  breakdown: true },
+  undefined:  { caption: 11, amount: 26, header: false, breakdown: false }
+};
+
 /****************************************************
  SETUP
  *****************************************************/
@@ -311,14 +319,6 @@ function Cache(storage) {
 /****************************************************
             Widget Layouts
 *****************************************************/
-
-const FAMILY_LAYOUTS = {
-  small:      { caption: 10, amount: 20, header: false, breakdown: false },
-  medium:     { caption: 11, amount: 26, header: true,  breakdown: false },
-  large:      { caption: 12, amount: 30, header: true,  breakdown: true },
-  extraLarge: { caption: 12, amount: 34, header: true,  breakdown: true },
-  undefined:  { caption: 11, amount: 26, header: false, breakdown: false }
-};
 
 function initLayout()
 {
