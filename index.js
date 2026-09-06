@@ -23,7 +23,8 @@ const BASE_URL = 'https://api.lunchmoney.dev/v2';
 
 // Tap targets: open the Lunch Money app via its URL scheme
 const BUDGET_URL = "lunchmoney://budget";
-const TRANSACTIONS_URL = "lunchmoney://transactions?status=unreviewed";
+const UNREVIEWED_URL = "lunchmoney://transactions?status=unreviewed&include_pending=true";
+const DEFAULT_URL = "lunchmoney://transactions?include_pending=true";
 
 // BASE_FILE: folder for cached data; API_KEY: Keychain entry for the API token;
 // CACHE_KEY + CACHED_MS: cache file name and how long a fresh copy stays usable
@@ -97,10 +98,12 @@ async function getWidget() {
     return widget;
   }
 
-  // Render the chosen family layout into a vertical stack
+  // Render the chosen family layout into a vertical stack; anything not
+  // assigned a specific tap target falls through to the transactions view
   const mainStack = widget.addStack();
   mainStack.layoutVertically();
   mainStack.spacing = 2;
+  mainStack.url = DEFAULT_URL;
   renderWidget(mainStack, lunchMoneyData, FAMILY_LAYOUTS[widgetFamily] || FAMILY_LAYOUTS.undefined);
 
   return widget;
@@ -547,26 +550,30 @@ function renderWidget(mainStack, data, config) {
     default:
       addHeader(mainStack);
       mainStack.addSpacer(6);
-      mainStack.url = BUDGET_URL;
-      addCaption(mainStack, "Leftover", config.caption);
-      addAmount(mainStack, data.savings, config.amount);
-      mainStack.addSpacer(10);
-      addBreakdown(mainStack, data, config.detailFont);
+      const budget = mainStack.addStack();
+      budget.layoutVertically();
+      budget.url = BUDGET_URL;
+      addCaption(budget, "Leftover", config.caption);
+      addAmount(budget, data.savings, config.amount);
+      budget.addSpacer(10);
+      addBreakdown(budget, data, config.detailFont);
       mainStack.addSpacer();
       break;
   }
 }
 
 // Inflow / Outflow / Leftover stacked vertically (small, in-app preview);
-// the whole section opens the Budget page
-function addStackedMetrics(mainStack, data, config) {
-  mainStack.url = BUDGET_URL;
-  addCaption(mainStack, "Inflow", config.caption);
-  addAmount(mainStack, Math.abs(data.inflow), config.inflowAmount, regularColor);
-  addCaption(mainStack, "Outflow", config.caption);
-  addAmount(mainStack, data.outflow, config.inflowAmount, regularColor);
-  addCaption(mainStack, "Leftover", config.caption);
-  addAmount(mainStack, data.savings, config.leftoverAmount);
+// the metrics open the Budget page, everything else falls to transactions
+function addStackedMetrics(parent, data, config) {
+  const stack = parent.addStack();
+  stack.layoutVertically();
+  stack.url = BUDGET_URL;
+  addCaption(stack, "Inflow", config.caption);
+  addAmount(stack, Math.abs(data.inflow), config.inflowAmount, regularColor);
+  addCaption(stack, "Outflow", config.caption);
+  addAmount(stack, data.outflow, config.inflowAmount, regularColor);
+  addCaption(stack, "Leftover", config.caption);
+  addAmount(stack, data.savings, config.leftoverAmount);
 }
 
 // Inflow / Leftover / Outflow across the width as three equal columns that scale
@@ -619,7 +626,7 @@ function addOverview(mainStack, data, config) {
   const list = mainStack.addStack();
   list.layoutVertically();
   list.layoutWeight = 1;
-  list.url = TRANSACTIONS_URL;
+  list.url = UNREVIEWED_URL;
   const items = (data.unreviewed || []).slice(0, config.maxUnreviewed || 7);
   if (items.length === 0) {
     addUnreviewedEmpty(list, data.unreviewedDiag, config);
@@ -648,7 +655,7 @@ function addReviewSplit(mainStack, data, config) {
   const right = row.addStack();
   right.layoutVertically();
   right.layoutWeight = 100 - (config.metricsWeight || 46);
-  right.url = TRANSACTIONS_URL;
+  right.url = UNREVIEWED_URL;
   addCaption(right, "Unreviewed", config.caption);
   const items = (data.unreviewed || []).slice(0, config.maxUnreviewed || 4);
   if (items.length === 0) {
@@ -710,7 +717,7 @@ function addHeader(mainStack) {
   const titleRow = mainStack.addStack();
   titleRow.layoutHorizontally();
   titleRow.addSpacer();
-  const title = titleRow.addText("LUNCH MONEY v11");
+  const title = titleRow.addText("LUNCH MONEY v12");
   title.font = Font.boldSystemFont(12);
   title.textColor = new Color(BRAND_GREEN);
   title.centerAlignText();
