@@ -19,6 +19,8 @@ const regularColor = Color.white();
 
 const BASE_URL = 'https://api.lunchmoney.dev/v2';
 
+const local = FileManager.local();
+
 const BASE_FILE = 'LunchMoneyWidget';
 const API_FILE = "apiKey";
 const CACHE_KEY = "lunchMoneyCache_v2";
@@ -443,8 +445,6 @@ function getLastMonthRange() {
 /****************************************************
             File Management
 *****************************************************/
-
-const local = FileManager.local();
 
 function saveToFile(content, key) {
   const folder = local.documentsDirectory() + "/" + BASE_FILE;
