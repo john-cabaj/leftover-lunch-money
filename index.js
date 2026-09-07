@@ -593,7 +593,6 @@ function renderWidget(mainStack, data, config) {
   switch (config.layout) {
     case "stacked":
       addBrandTitle(mainStack);
-      mainStack.addSpacer();
       addStackedMetrics(mainStack, data, config);
       break;
     case "review":
@@ -637,6 +636,7 @@ function addStackedMetrics(parent, data, config) {
   const stack = parent.addStack();
   stack.layoutVertically();
   stack.layoutWeight = 1;
+  stack.topAlignContent();
   stack.url = BUDGET_URL;
   addMetrics(stack, data, config, config.inflowAmount, config.leftoverAmount);
 }
