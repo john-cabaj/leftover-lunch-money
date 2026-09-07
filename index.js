@@ -61,7 +61,7 @@ const USE_PAY_CYCLE = args.widgetParameter != null;
 const smallLayout = { layout: "stacked", caption: 11, inflowAmount: 20, leftoverAmount: 25 };
 const FAMILY_LAYOUTS = {
   small:      smallLayout,
-  medium:     { layout: "review", header: true, caption: 12, amount: 28, leftoverAmount: 34, detailFont: 10, payeeLen: 24, maxUnreviewed: 3, metricsWeight: 46 },
+  medium:     { layout: "review", header: true, caption: 12, amount: 28, leftoverAmount: 34, detailFont: 11, payeeLen: 26, maxUnreviewed: 4, metricsWeight: 36 },
   large:      { layout: "overview", header: true, caption: 14, amount: 30, detailFont: 12, payeeLen: 30, maxUnreviewed: 7 },
   extraLarge: { layout: "breakdown", header: true, caption: 15, amount: 46, detailFont: 11 },
   undefined:  smallLayout
@@ -615,7 +615,7 @@ function addReviewSplit(mainStack, data, config) {
   left.layoutVertically();
   left.layoutWeight = config.metricsWeight || 46;
   left.url = BUDGET_URL;
-  addMetrics(left, data, config, config.amount, config.leftoverAmount || config.amount);
+  addMetrics(left, data, config, config.amount, config.leftoverAmount || config.amount, true);
   left.addSpacer();
 
   const right = row.addStack();
@@ -628,13 +628,13 @@ function addReviewSplit(mainStack, data, config) {
 }
 
 // Inflow / Outflow / Leftover rows, sharing one badge + amount style
-function addMetrics(parent, data, config, amountSize, leftoverSize) {
-  addCaption(parent, "Inflow", config.caption);
-  addAmount(parent, Math.abs(data.inflow), amountSize, regularColor);
-  addCaption(parent, "Outflow", config.caption);
-  addAmount(parent, data.outflow, amountSize, regularColor);
-  addCaption(parent, "Leftover", config.caption);
-  addAmount(parent, data.savings, leftoverSize);
+function addMetrics(parent, data, config, amountSize, leftoverSize, alignLeft) {
+  addCaption(parent, "Inflow", config.caption, alignLeft);
+  addAmount(parent, Math.abs(data.inflow), amountSize, regularColor, alignLeft);
+  addCaption(parent, "Outflow", config.caption, alignLeft);
+  addAmount(parent, data.outflow, amountSize, regularColor, alignLeft);
+  addCaption(parent, "Leftover", config.caption, alignLeft);
+  addAmount(parent, data.savings, leftoverSize, undefined, alignLeft);
 }
 
 // Transaction rows up to the family limit, or an inline empty/diagnostic notice
@@ -658,31 +658,23 @@ function addUnreviewedEmpty(parent, diag, config) {
   empty.minimumScaleFactor = 0.6;
 }
 
-// One unreviewed transaction: payee + amount on top, date underneath
+// One unreviewed transaction: payee + amount on a single line (no date)
 function addTransactionRow(parent, t, config) {
-  const block = parent.addStack();
-  block.layoutVertically();
-
-  const top = block.addStack();
-  top.layoutHorizontally();
+  const row = parent.addStack();
+  row.layoutHorizontally();
   const fontSize = config.detailFont || 9;
-  const payee = top.addText(clip(t.payee, config.payeeLen || 16));
+  const payee = row.addText(clip(t.payee, config.payeeLen || 16));
   payee.font = font(fontSize);
   payee.textColor = regularColor;
   payee.lineLimit = 1;
-  top.addSpacer();
+  row.addSpacer();
   // Lunch Money stores expenses as positive and income as negative; expenses
   // get a "-" in red, income a "+" in regular green
   const isInflow = t.amount < 0;
-  const amount = top.addText((isInflow ? "+" : "-") + formatMoney(Math.abs(t.amount)));
+  const amount = row.addText((isInflow ? "+" : "-") + formatMoney(Math.abs(t.amount)));
   amount.font = font(fontSize);
   amount.lineLimit = 1;
   amount.textColor = isInflow ? incomeGreen : expenseRed;
-
-  const stamp = block.addText(t.date);
-  stamp.font = font(Math.max(7, fontSize - 2));
-  stamp.textColor = regularColor;
-  stamp.textOpacity = 0.5;
 
   parent.addSpacer(3);
 }
@@ -698,7 +690,7 @@ function addHeader(mainStack) {
   const titleRow = mainStack.addStack();
   titleRow.layoutHorizontally();
   titleRow.addSpacer();
-  const title = titleRow.addText("LUNCH MONEY v14");
+  const title = titleRow.addText("LUNCH MONEY v15");
   title.font = Font.boldSystemFont(12);
   title.textColor = brandGreen;
   title.centerAlignText();
@@ -720,29 +712,38 @@ function budgetPeriodLabel() {
   return MONTHS[new Date().getMonth()].toUpperCase();
 }
 
-// Centered yellow label (e.g. "Inflow", "Leftover")
-function addCaption(mainStack, text, size) {
+// Yellow label (e.g. "Inflow", "Leftover"); centered unless alignLeft is set
+function addCaption(mainStack, text, size, alignLeft) {
   const row = mainStack.addStack();
   row.layoutHorizontally();
-  row.addSpacer();
+  if (!alignLeft) row.addSpacer();
   const caption = row.addText(text);
   caption.font = font(size);
   caption.textColor = brandYellow;
-  caption.centerAlignText();
+  if (alignLeft) {
+    caption.leftAlignText();
+  } else {
+    caption.centerAlignText();
+  }
   row.addSpacer();
 }
 
-// Centered bold monetary value; colored by sign unless colorOverride is given
-function addAmount(mainStack, value, size, colorOverride) {
+// Bold monetary value; colored by sign unless colorOverride is given.
+// Centered unless alignLeft is set.
+function addAmount(mainStack, value, size, colorOverride, alignLeft) {
   const row = mainStack.addStack();
   row.layoutHorizontally();
-  row.addSpacer();
+  if (!alignLeft) row.addSpacer();
   const amount = row.addText(formatMoney(value));
   amount.font = boldFont(size);
   amount.lineLimit = 1;
   amount.minimumScaleFactor = 0.5;
   amount.textColor = colorOverride || (value < 0 ? lossRed : brandGreen);
-  amount.centerAlignText();
+  if (alignLeft) {
+    amount.leftAlignText();
+  } else {
+    amount.centerAlignText();
+  }
   row.addSpacer();
 }
 
