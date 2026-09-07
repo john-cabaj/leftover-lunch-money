@@ -586,10 +586,9 @@ function addStackedMetrics(parent, data, config) {
   addMetrics(stack, data, config, config.inflowAmount, config.leftoverAmount);
 }
 
-// Brand title row for the small stacked widget and the large headers.
-// Version marker bumped on the device to confirm the copy is current.
+// Brand title row for the small stacked widget and the large headers
 function addBrandTitle(parent) {
-  addCenteredText(parent, "LUNCH MONEY v1", {
+  addCenteredText(parent, "LUNCH MONEY", {
     font: Font.boldSystemFont(12),
     color: brandGreen
   });
