@@ -61,7 +61,7 @@ const USE_PAY_CYCLE = args.widgetParameter != null;
 const smallLayout = { layout: "stacked", caption: 11, inflowAmount: 20, leftoverAmount: 25 };
 const FAMILY_LAYOUTS = {
   small:      smallLayout,
-  medium:     { layout: "review", header: true, caption: 13, amount: 26, leftoverAmount: 30, detailFont: 11, payeeLen: 28 },
+  medium:     { layout: "review", header: true, compactHeader: true, caption: 9, amount: 12, leftoverAmount: 14, detailFont: 11, payeeLen: 28 },
   large:      { layout: "overview", header: true, caption: 14, amount: 30, detailFont: 12, payeeLen: 30 },
   extraLarge: { layout: "breakdown", header: true, caption: 15, amount: 46, detailFont: 11 },
   undefined:  smallLayout
@@ -123,11 +123,12 @@ async function getWidget() {
 
   // Render the chosen family layout into a vertical stack; anything not
   // assigned a specific tap target falls through to the transactions view
+  const layoutConfig = FAMILY_LAYOUTS[widgetFamily] || FAMILY_LAYOUTS.undefined;
   const mainStack = widget.addStack();
   mainStack.layoutVertically();
   mainStack.spacing = 2;
-  widget.url = DEFAULT_URL;
-  renderWidget(mainStack, lunchMoneyData, FAMILY_LAYOUTS[widgetFamily] || FAMILY_LAYOUTS.undefined);
+  widget.url = layoutConfig.layout === "stacked" ? BUDGET_URL : DEFAULT_URL;
+  renderWidget(mainStack, lunchMoneyData, layoutConfig);
 
   return widget;
 };
@@ -538,7 +539,7 @@ function renderWidget(mainStack, data, config) {
       addStackedMetrics(mainStack, data, config);
       break;
     case "review":
-      addHeader(mainStack);
+      addHeader(mainStack, config.compactHeader);
       mainStack.addSpacer(6);
       addReviewSplit(mainStack, data, config);
       mainStack.addSpacer();
@@ -613,7 +614,9 @@ function addOverview(mainStack, data, config) {
   addUnreviewedItems(list, data, config);
 }
 
-// Medium layout: metrics top-aligned on the left, unreviewed transactions on the right
+// Medium layout: compact metrics stacked on the left, unreviewed transactions
+// filling the remaining width on the right. The metric fonts are kept small so
+// the column stays narrow and the list gets the majority of the width.
 function addReviewSplit(mainStack, data, config) {
   const row = mainStack.addStack();
   row.layoutHorizontally();
@@ -623,7 +626,6 @@ function addReviewSplit(mainStack, data, config) {
   left.url = BUDGET_URL;
   addMetrics(left, data, config, config.amount, config.leftoverAmount || config.amount, true);
   left.addSpacer();
-  left.addSpacer(10);
 
   const right = row.addStack();
   right.layoutVertically();
@@ -663,7 +665,10 @@ function listHeightBudget(config) {
   const height = WIDGET_HEIGHTS[config.layout];
   if (config.layout === "review") {
     // medium: list shares the row's fixed height with the metrics column
-    return height - PADDING_Y - HEADER_H - 6 - lineHeight(config.caption);
+    const headerH = config.compactHeader
+      ? lineHeight(13) + STACK_SPACING
+      : HEADER_H;
+    return height - PADDING_Y - headerH - 6 - lineHeight(config.caption);
   }
   if (config.layout === "overview") {
     const metricRowH = lineHeight(config.caption) + STACK_SPACING + lineHeight(config.amount);
@@ -726,24 +731,39 @@ function clip(text, max) {
 }
 
 // Title + budget period label row used by medium and extraLarge layouts
-function addHeader(mainStack) {
+// Application title plus the budget period label, on one horizontal line.
+// compactHeader collapses them to a single centered row (used by medium).
+function addHeader(mainStack, compactHeader) {
+  const row = mainStack.addStack();
+  row.layoutHorizontally();
+
+  if (compactHeader) {
+    const titleText = row.addText(titleTextLabel());
+    titleText.font = boldFont(13);
+    titleText.textColor = brandGreen;
+    titleText.centerAlignText();
+    row.addSpacer(8);
+    const periodText = row.addText(budgetPeriodLabel());
+    periodText.font = regularFont;
+    periodText.textColor = regularColor;
+    periodText.centerAlignText();
+    return;
+  }
+
   const titleRow = mainStack.addStack();
   titleRow.layoutHorizontally();
   titleRow.addSpacer();
-  const title = titleRow.addText("LUNCH MONEY v22");
-  title.font = Font.boldSystemFont(12);
+  const title = titleRow.addText(titleTextLabel());
+  title.font = boldFont(13);
   title.textColor = brandGreen;
   title.centerAlignText();
   titleRow.addSpacer();
 
   const periodRow = mainStack.addStack();
   periodRow.layoutHorizontally();
-  periodRow.addSpacer();
   const period = periodRow.addText(budgetPeriodLabel());
-  period.font = regularFont;
   period.textColor = regularColor;
   period.centerAlignText();
-  periodRow.addSpacer();
 }
 
 // Text shown under the title: pay cycle when requested, otherwise current month
@@ -751,6 +771,9 @@ function budgetPeriodLabel() {
   if (USE_PAY_CYCLE) return "CURRENT PAY CYCLE";
   return MONTHS[new Date().getMonth()].toUpperCase();
 }
+
+// Version marker; the only reliable way to know which build is on the phone
+function titleTextLabel() { return "LUNCH MONEY v23"; }
 
 // Yellow label (e.g. "Inflow", "Leftover"); centered unless alignLeft is set
 function addCaption(mainStack, text, size, alignLeft) {
