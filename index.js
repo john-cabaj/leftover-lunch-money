@@ -136,16 +136,11 @@ async function getWidget() {
 // "Leftover" caption plus the given error message, centered
 function addErrorState(widget, message) {
   addCaption(widget, "Leftover", 11);
-
-  const messageStack = widget.addStack();
-  messageStack.layoutHorizontally();
-  messageStack.addSpacer();
-  const messageText = messageStack.addText(message);
-  messageText.font = smallFont;
-  messageText.textColor = regularColor;
-  messageText.centerAlignText();
-  messageText.textOpacity = 0.8;
-  messageStack.addSpacer();
+  addCenteredText(widget, message, {
+    font: smallFont,
+    color: regularColor,
+    opacity: 0.8
+  });
 }
 
 // Prefer a fresh cached copy, fetch from the API, then fall back to stale cache
@@ -494,10 +489,15 @@ function getCalendarMonthRange() {
              Storage
 *****************************************************/
 
+// Full path to the Scriptable folder used for cache + diagnostics
+function storageFolder() {
+  return FileManager.local().documentsDirectory() + "/" + BASE_FILE;
+}
+
 // Reads the cached result JSON; TTL-gated unless allowStale is set (offline fallback)
 function readCache(allowStale) {
   const fm = FileManager.local();
-  const path = fm.documentsDirectory() + "/" + BASE_FILE + "/" + CACHE_KEY;
+  const path = storageFolder() + "/" + CACHE_KEY;
   try {
     const raw = fm.readString(path);
     if (raw && (allowStale || Date.now() - fm.modificationDate(path) <= CACHED_MS)) {
@@ -515,7 +515,7 @@ function readCache(allowStale) {
 function writeDiagnostics(line) {
   try {
     const fm = FileManager.local();
-    const folder = fm.documentsDirectory() + "/" + BASE_FILE;
+    const folder = storageFolder();
     fm.createDirectory(folder, true);
     const path = folder + "/diagnostics.txt";
     const prev = fm.fileExists(path) ? fm.readString(path) : "";
@@ -528,7 +528,7 @@ function writeDiagnostics(line) {
 // Persists the latest result to the cache file
 function writeCache(data) {
   const fm = FileManager.local();
-  const folder = fm.documentsDirectory() + "/" + BASE_FILE;
+  const folder = storageFolder();
   fm.createDirectory(folder, true);
   fm.writeString(folder + "/" + CACHE_KEY, JSON.stringify(data));
 }
@@ -541,7 +541,7 @@ function writeCache(data) {
 function renderWidget(mainStack, data, config) {
   switch (config.layout) {
     case "stacked":
-      addCompactTitle(mainStack);
+      addBrandTitle(mainStack);
       addStackedMetrics(mainStack, data, config);
       break;
     case "review":
@@ -586,25 +586,27 @@ function addStackedMetrics(parent, data, config) {
   addMetrics(stack, data, config, config.inflowAmount, config.leftoverAmount);
 }
 
-// Brand title row for the small stacked widget
-function addCompactTitle(mainStack) {
-  const row = mainStack.addStack();
-  row.layoutHorizontally();
-  row.addSpacer();
-  const title = row.addText("LUNCH MONEY v28");
-  title.font = Font.boldSystemFont(12);
-  title.textColor = brandGreen;
-  title.centerAlignText();
-  row.addSpacer();
+// Brand title row for the small stacked widget and the large headers.
+// Version marker bumped on the device to confirm the copy is current.
+function addBrandTitle(parent) {
+  addCenteredText(parent, "LUNCH MONEY v1", {
+    font: Font.boldSystemFont(12),
+    color: brandGreen
+  });
 }
 
 // Inflow / Leftover / Outflow across the width as three equal columns that scale
 function addMetricRow(parent, data, config) {
   const row = parent.addStack();
   row.layoutHorizontally();
-  addMetricColumn(row, "Inflow", Math.abs(data.inflow), config);
-  addMetricColumn(row, "Leftover", data.savings, config);
-  addMetricColumn(row, "Outflow", data.outflow, config);
+  const metrics = [
+    ["Inflow", Math.abs(data.inflow)],
+    ["Leftover", data.savings],
+    ["Outflow", data.outflow]
+  ];
+  for (const [label, value] of metrics) {
+    addMetricColumn(row, label, value, config);
+  }
   return row;
 }
 
@@ -654,15 +656,20 @@ function addReviewSplit(mainStack, data, config) {
   right.addSpacer();
 }
 
-// Inflow / Outflow / Leftover rows, sharing one badge + amount style
+// Inflow / Outflow / Leftover rows, sharing one badge + amount style.
+// The leftover line is taller and (when left-aligned) reserves room for the
+// largest plausible amount so the column width stays stable.
 function addMetrics(parent, data, config, amountSize, leftoverSize, alignLeft) {
-  addCaption(parent, "Inflow", config.caption, alignLeft);
-  addAmount(parent, Math.abs(data.inflow), amountSize, regularColor, alignLeft);
-  addCaption(parent, "Outflow", config.caption, alignLeft);
-  addAmount(parent, data.outflow, amountSize, regularColor, alignLeft);
-  addCaption(parent, "Leftover", config.caption, alignLeft);
-  addAmount(parent, data.savings, leftoverSize, undefined, alignLeft,
-           alignLeft ? textWidth(formatMoney(99999), leftoverSize) : undefined);
+  const metrics = [
+    ["Inflow", Math.abs(data.inflow), amountSize, regularColor, null],
+    ["Outflow", data.outflow, amountSize, regularColor, null],
+    ["Leftover", data.savings, leftoverSize, undefined,
+     alignLeft ? textWidth(formatMoney(99999), leftoverSize) : undefined]
+  ];
+  for (const [label, value, size, color, minWidth] of metrics) {
+    addCaption(parent, label, config.caption, alignLeft);
+    addAmount(parent, value, size, color, alignLeft, minWidth);
+  }
 }
 
 // Every unreviewed transaction that fits without clipping, or an inline
@@ -746,25 +753,13 @@ function clip(text, max) {
   return t.length > max ? t.slice(0, max - 1) + "…" : t;
 }
 
-// Title + budget period label row used by medium and extraLarge layouts
+// Title + budget period label rows used by medium and extraLarge layouts
 function addHeader(mainStack) {
-  const titleRow = mainStack.addStack();
-  titleRow.layoutHorizontally();
-  titleRow.addSpacer();
-  const title = titleRow.addText("LUNCH MONEY v28");
-  title.font = Font.boldSystemFont(12);
-  title.textColor = brandGreen;
-  title.centerAlignText();
-  titleRow.addSpacer();
-
-  const periodRow = mainStack.addStack();
-  periodRow.layoutHorizontally();
-  periodRow.addSpacer();
-  const period = periodRow.addText(budgetPeriodLabel());
-  period.font = regularFont;
-  period.textColor = regularColor;
-  period.centerAlignText();
-  periodRow.addSpacer();
+  addBrandTitle(mainStack);
+  addCenteredText(mainStack, budgetPeriodLabel(), {
+    font: regularFont,
+    color: regularColor
+  });
 }
 
 // Text shown under the title: pay cycle when requested, otherwise current month
@@ -773,51 +768,78 @@ function budgetPeriodLabel() {
   return MONTHS[new Date().getMonth()].toUpperCase();
 }
 
-// Yellow label (e.g. "Inflow", "Leftover"); centered unless alignLeft is set
-function addCaption(mainStack, text, size, alignLeft) {
-  const row = mainStack.addStack();
+// A single centered line: flexible spacers on both sides keep the label centered,
+// so it takes the full width even in a mixed-size layout
+function addCenteredText(parent, text, style) {
+  const row = parent.addStack();
   row.layoutHorizontally();
-  if (!alignLeft) row.addSpacer();
-  const caption = row.addText(text);
-  caption.font = font(size);
-  caption.textColor = brandYellow;
-  if (alignLeft) {
-    caption.leftAlignText();
+  row.addSpacer();
+  const label = row.addText(text);
+  label.font = style.font;
+  if (style.color != null) label.textColor = style.color;
+  label.centerAlignText();
+  if (style.opacity != null) label.textOpacity = style.opacity;
+  row.addSpacer();
+  return label;
+}
+
+// One horizontal row holding a single styled text. Centered lines are framed by
+// flexible spacers; left-aligned lines hug the text with no trailing spacer
+// (a trailing flex spacer inflates the row's implicit width and widens the
+// whole column). Returns { row, label } so callers can tweak the text or
+// append fixed spacers afterwards.
+function addTextRow(parent, text, options) {
+  const row = parent.addStack();
+  row.layoutHorizontally();
+  if (!options.alignLeft) row.addSpacer();
+  const label = row.addText(text);
+  label.font = options.font;
+  if (options.color != null) label.textColor = options.color;
+  if (options.alignLeft) {
+    label.leftAlignText();
   } else {
-    caption.centerAlignText();
+    label.centerAlignText();
     row.addSpacer();
   }
+  return { row, label };
+}
+
+// Yellow label (e.g. "Inflow", "Leftover"); centered unless alignLeft is set
+function addCaption(parent, text, size, alignLeft) {
+  addTextRow(parent, text, {
+    font: font(size),
+    color: brandYellow,
+    alignLeft
+  });
 }
 
 // Bold monetary value; colored by sign unless colorOverride is given.
 // Centered unless alignLeft is set. A minWidth (points) reserves fixed room
 // for the row so the column width stays stable across amounts.
-function addAmount(mainStack, value, size, colorOverride, alignLeft, minWidth) {
-  const row = mainStack.addStack();
-  row.layoutHorizontally();
-  if (!alignLeft) row.addSpacer();
-  const amount = row.addText(formatMoney(value));
-  amount.font = boldFont(size);
-  amount.lineLimit = 1;
-  amount.minimumScaleFactor = 0.5;
-  amount.textColor = colorOverride || (value < 0 ? lossRed : brandGreen);
-  if (alignLeft) {
-    amount.leftAlignText();
-  } else {
-    amount.centerAlignText();
-    row.addSpacer();
-  }
+function addAmount(parent, value, size, colorOverride, alignLeft, minWidth) {
+  const text = formatMoney(value);
+  const { row, label } = addTextRow(parent, text, {
+    font: boldFont(size),
+    color: colorOverride || (value < 0 ? lossRed : brandGreen),
+    alignLeft
+  });
+  label.lineLimit = 1;
+  label.minimumScaleFactor = 0.5;
   if (minWidth) {
-    const str = formatMoney(value);
-    const extra = minWidth - (str.length * 0.6 * size);
+    const extra = minWidth - textWidth(text, size);
     if (extra > 0) row.addSpacer(extra);
   }
 }
 
 // extraLarge: Leftover amount plus Inflow / Outflow detail lines
 function addBreakdown(mainStack, data, detailFont) {
-  addDetailRow(mainStack, "Inflow", Math.abs(data.inflow), detailFont);
-  addDetailRow(mainStack, "Outflow", data.outflow, detailFont);
+  const rows = [
+    ["Inflow", Math.abs(data.inflow)],
+    ["Outflow", data.outflow]
+  ];
+  for (const [label, value] of rows) {
+    addDetailRow(mainStack, label, value, detailFont);
+  }
 }
 
 // Left-aligned label, right-aligned value on one line
