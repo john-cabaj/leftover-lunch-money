@@ -67,8 +67,10 @@ const FAMILY_LAYOUTS = {
   undefined:  smallLayout
 };
 
-// Approximate line height for a given font size, matching Menlo's metrics
-function lineHeight(size) { return Math.ceil(size * 1.25); }
+// Approximate line height for a given font size. Menlo's line box is tight
+// (≈1.15× the point size), so this deliberately under-reserves the height the
+// layout actually needs, letting the row budgets fit the last row.
+function lineHeight(size) { return Math.ceil(size * 1.15); }
 
 // Widget container sizes (pt) for the medium and large widgets by device screen
 // (portrait points). Read from Device.screenSize() before SETUP so the width and
@@ -94,7 +96,7 @@ function widgetSizes() {
 
 const WIDGET_SIZE = widgetSizes();
 // Height budget per layout. Declared up here (before SETUP) so row math can use
-// them safely. review keeps +2pt slack so five unreviewed rows fit on the
+// them safely. review keeps +2pt slack so the last row isn't clipped on the
 // taller (~170pt) medium widgets.
 const WIDGET_HEIGHTS = { review: WIDGET_SIZE.medium + 2, overview: WIDGET_SIZE.large };
 const PADDING_Y = 28; // setPadding(14, 10, 14, 10)
@@ -594,10 +596,10 @@ function renderWidget(mainStack, data, config) {
       addStackedMetrics(mainStack, data, config);
       break;
     case "review":
-      withHeaderAndSpacer(mainStack, data, config, 6, addReviewSplit);
+      withHeaderAndSpacer(mainStack, data, config, 4, addReviewSplit);
       break;
     case "overview":
-      withHeaderAndSpacer(mainStack, data, config, 8, addOverview);
+      withHeaderAndSpacer(mainStack, data, config, 6, addOverview);
       break;
     default: // breakdown / extraLarge
       addBreakdownLayout(mainStack, data, config);
@@ -676,7 +678,7 @@ function addMetricColumn(parentRow, label, value, config) {
 function addOverview(mainStack, data, config) {
   const metricRow = addMetricRow(mainStack, data, config);
   metricRow.url = BUDGET_URL;
-  mainStack.addSpacer(14);
+  mainStack.addSpacer(10);
   addCaption(mainStack, "Unreviewed", config.caption);
   const list = mainStack.addStack();
   list.layoutVertically();
@@ -753,11 +755,11 @@ function listHeightBudget(config) {
   const height = WIDGET_HEIGHTS[config.layout];
   if (config.layout === "review") {
     // medium: list shares the row's fixed height with the metrics column
-    return height - PADDING_Y - HEADER_H - 6 - lineHeight(config.caption);
+    return height - PADDING_Y - HEADER_H - 4 - lineHeight(config.caption);
   }
   if (config.layout === "overview") {
     const metricRowH = lineHeight(config.caption) + STACK_SPACING + lineHeight(config.amount);
-    return height - PADDING_Y - HEADER_H - 8 - metricRowH - 14 - lineHeight(config.caption);
+    return height - PADDING_Y - HEADER_H - 6 - metricRowH - 10 - lineHeight(config.caption);
   }
   return 0;
 }
@@ -767,13 +769,13 @@ function rowFitHeight(config) {
   return lineHeight(config.detailFont || 9) + 3;
 }
 
-// How many rows fit cleanly: the raw fit minus a small slop so the last row
-// is never partially cut off at the widget's bottom edge
+// How many rows fit: the budget divided by the row pitch. The trailing
+// flexible spacer absorbs whatever's left, so rows can run right up to the
+// widget's bottom edge.
 function maxUnreviewedCount(data, config) {
   const items = data.unreviewed || [];
   if (items.length === 0) return 0;
-  const budget = listHeightBudget(config);
-  const count = Math.max(1, Math.floor((budget - 4) / rowFitHeight(config)));
+  const count = Math.max(1, Math.floor(listHeightBudget(config) / rowFitHeight(config)));
   return Math.min(items.length, count);
 }
 
