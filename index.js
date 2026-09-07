@@ -586,7 +586,7 @@ function addCompactTitle(mainStack) {
   const row = mainStack.addStack();
   row.layoutHorizontally();
   row.addSpacer();
-  const title = row.addText("LUNCH MONEY v27");
+  const title = row.addText("Leftover Lunch Money v27");
   title.font = Font.boldSystemFont(12);
   title.textColor = brandGreen;
   title.centerAlignText();
@@ -745,7 +745,7 @@ function addHeader(mainStack) {
   const titleRow = mainStack.addStack();
   titleRow.layoutHorizontally();
   titleRow.addSpacer();
-  const title = titleRow.addText("LUNCH MONEY v27");
+  const title = titleRow.addText("Leftover Lunch Money v27");
   title.font = Font.boldSystemFont(12);
   title.textColor = brandGreen;
   title.centerAlignText();
