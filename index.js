@@ -637,16 +637,54 @@ function addMetrics(parent, data, config, amountSize, leftoverSize, alignLeft) {
   addAmount(parent, data.savings, leftoverSize, undefined, alignLeft);
 }
 
-// Every unreviewed transaction, or an inline empty/diagnostic notice.
-// The list stack is layout-bounded, so the widget simply clips rows that
-// don't fit rather than counting them up front.
+// Every unreviewed transaction that fits without clipping, or an inline
+// empty/diagnostic notice. The count is derived from the widget's fixed
+// height minus everything rendered above the list, so we never let a row
+// run past the widget's bottom edge.
 function addUnreviewedItems(parent, data, config) {
-  const items = data.unreviewed || [];
+  const items = (data.unreviewed || []).slice(0, maxUnreviewedCount(data, config));
   if (items.length === 0) {
     addUnreviewedEmpty(parent, data.unreviewedDiag, config);
   } else {
     items.forEach((t) => addTransactionRow(parent, t, config));
   }
+}
+
+// Approximate line height for a given font size, matching Menlo's metrics
+function lineHeight(size) { return Math.ceil(size * 1.25); }
+
+// Height reserved by the widget's fixed padding, header, and per-layout chrome
+const PADDING_Y = 28; // setPadding(14, 10, 14, 10)
+const STACK_SPACING = 2; // mainStack.spacing
+const HEADER_H = lineHeight(12) + STACK_SPACING + lineHeight(11); // title + period
+
+// Vertical points available to the unreviewed list after padding, header,
+// spacers, metric rows, and the section caption are accounted for
+function listHeightBudget(config) {
+  if (config.layout === "review") {
+    // medium: list shares the row's fixed height with the metrics column
+    return 155 - PADDING_Y - HEADER_H - 6 - lineHeight(config.caption);
+  }
+  if (config.layout === "overview") {
+    const metricRowH = lineHeight(config.caption) + STACK_SPACING + lineHeight(config.amount);
+    return 345 - PADDING_Y - HEADER_H - 8 - metricRowH - 14 - lineHeight(config.caption);
+  }
+  return 0;
+}
+
+// One transaction row: text line plus the trailing 3pt spacer between rows
+function rowFitHeight(config) {
+  return lineHeight(config.detailFont || 9) + 3;
+}
+
+// How many rows fit cleanly: the raw fit minus a small slop so the last row
+// is never partially cut off at the widget's bottom edge
+function maxUnreviewedCount(data, config) {
+  const items = data.unreviewed || [];
+  if (items.length === 0) return 0;
+  const budget = listHeightBudget(config);
+  const count = Math.max(1, Math.floor((budget - 4) / rowFitHeight(config)));
+  return Math.min(items.length, count);
 }
 
 // Unreviewed section fallback; shows inline diagnostics when nothing was fetched
@@ -692,7 +730,7 @@ function addHeader(mainStack) {
   const titleRow = mainStack.addStack();
   titleRow.layoutHorizontally();
   titleRow.addSpacer();
-  const title = titleRow.addText("LUNCH MONEY v19");
+  const title = titleRow.addText("LUNCH MONEY v20");
   title.font = Font.boldSystemFont(12);
   title.textColor = brandGreen;
   title.centerAlignText();
