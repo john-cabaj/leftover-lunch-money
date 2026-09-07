@@ -62,7 +62,7 @@ const smallLayout = { layout: "stacked", caption: 11, inflowAmount: 20, leftover
 const FAMILY_LAYOUTS = {
   small:      smallLayout,
   medium:     { layout: "review", header: true, caption: 12, amount: 24, leftoverAmount: 26, detailFont: 11, payeeLen: 26, maxUnreviewed: 4, metricsWeight: 30 },
-  large:      { layout: "overview", header: true, caption: 14, amount: 30, detailFont: 12, payeeLen: 30, maxUnreviewed: 7 },
+  large:      { layout: "overview", header: true, caption: 14, amount: 30, detailFont: 12, payeeLen: 30, maxUnreviewed: 12 },
   extraLarge: { layout: "breakdown", header: true, caption: 15, amount: 46, detailFont: 11 },
   undefined:  smallLayout
 };
@@ -690,7 +690,7 @@ function addHeader(mainStack) {
   const titleRow = mainStack.addStack();
   titleRow.layoutHorizontally();
   titleRow.addSpacer();
-  const title = titleRow.addText("LUNCH MONEY v17");
+  const title = titleRow.addText("LUNCH MONEY v18");
   title.font = Font.boldSystemFont(12);
   title.textColor = brandGreen;
   title.centerAlignText();
