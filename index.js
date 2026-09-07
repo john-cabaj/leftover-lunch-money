@@ -104,9 +104,11 @@ const HEADER_H = lineHeight(TITLE_SIZE) + STACK_SPACING + lineHeight(PERIOD_SIZE
 const MEDIUM_INNER_WIDTH = WIDGET_SIZE.width - 20;
 
 // Medium review split: the metrics column keeps the smaller share so the
-// unreviewed list gets the rest (27% / 73% of the inner width).
-const METRICS_WEIGHT = 27;
-const LIST_WEIGHT = 73;
+// unreviewed list gets the rest (31% / 69% of the inner width). The metrics
+// share is a couple points larger than the amounts' text so the 30pt figures
+// and their gap to the list fit; the extra comes out of the list's width.
+const METRICS_WEIGHT = 31;
+const LIST_WEIGHT = 69;
 
 // Widest monetary strings the layout budgets around: the 10-char figure every
 // amount pads/right-justifies to, and the signed worst case a transaction row
@@ -133,7 +135,7 @@ function smallAmountFont() {
 const smallLayout = { layout: "stacked", caption: SMALL_CAPTION, inflowAmount: smallAmountFont(), leftoverAmount: smallAmountFont() };
 const FAMILY_LAYOUTS = {
   small:      smallLayout,
-  medium:     { layout: "review", header: true, caption: 13, amount: 28, leftoverAmount: 28, detailFont: 11, payeeLen: 28 },
+  medium:     { layout: "review", header: true, caption: 13, amount: 30, leftoverAmount: 30, detailFont: 11, payeeLen: 28 },
   large:      { layout: "overview", header: true, caption: 14, amount: 30, detailFont: 12, payeeLen: 30 },
   extraLarge: { layout: "breakdown", header: true, caption: 15, amount: 46, detailFont: 11 },
   undefined:  smallLayout
@@ -646,6 +648,7 @@ function addBreakdownLayout(mainStack, data, config) {
 }
 
 // Inflow / Outflow / Leftover stacked vertically (small, in-app preview).
+// Captions and amounts hug the right edge so the cents line up across rows.
 // The stack fills the whole widget so any tap opens Budget.
 function addStackedMetrics(parent, data, config) {
   const stack = parent.addStack();
@@ -653,7 +656,7 @@ function addStackedMetrics(parent, data, config) {
   stack.layoutWeight = 1;
   stack.topAlignContent();
   stack.url = BUDGET_URL;
-  addMetrics(stack, data, config, config.inflowAmount, config.leftoverAmount);
+  addMetrics(stack, data, config, config.inflowAmount, config.leftoverAmount, false, true);
 }
 
 // Brand title row for the small stacked widget and the large headers
@@ -729,7 +732,7 @@ function addReviewSplit(mainStack, data, config) {
 // In the medium layout (alignLeft) every amount right-justifies inside the
 // column, so the decimals share one right edge and the gap to the unreviewed
 // list is the same on all three rows, no matter what's in the list.
-function addMetrics(parent, data, config, amountSize, leftoverSize, alignLeft) {
+function addMetrics(parent, data, config, amountSize, leftoverSize, alignLeft, alignRight) {
   const columnWidth = metricColumnWidth(amountSize, leftoverSize, alignLeft);
   const metrics = [
     ["Inflow", Math.abs(data.inflow), amountSize, regularColor],
@@ -737,8 +740,8 @@ function addMetrics(parent, data, config, amountSize, leftoverSize, alignLeft) {
     ["Leftover", data.savings, leftoverSize, undefined]
   ];
   for (const [label, value, size, color] of metrics) {
-    addCaption(parent, label, config.caption, alignLeft);
-    addAmount(parent, value, size, color, alignLeft, columnWidth);
+    addCaption(parent, label, config.caption, alignLeft, alignRight);
+    addAmount(parent, value, size, color, alignLeft, columnWidth, alignRight);
   }
 }
 
@@ -885,11 +888,17 @@ function addCenteredText(parent, text, style) {
 function addTextRow(parent, text, options) {
   const row = parent.addStack();
   row.layoutHorizontally();
-  if (!options.alignLeft) row.addSpacer();
+  if (options.alignRight) {
+    row.addSpacer();
+  } else if (!options.alignLeft) {
+    row.addSpacer();
+  }
   const label = row.addText(text);
   label.font = options.font;
   if (options.color != null) label.textColor = options.color;
-  if (options.alignLeft) {
+  if (options.alignRight) {
+    label.rightAlignText();
+  } else if (options.alignLeft) {
     label.leftAlignText();
   } else {
     label.centerAlignText();
@@ -898,22 +907,25 @@ function addTextRow(parent, text, options) {
   return { row, label };
 }
 
-// Yellow label (e.g. "Inflow", "Leftover"); centered unless alignLeft is set
-function addCaption(parent, text, size, alignLeft) {
+// Yellow label (e.g. "Inflow", "Leftover"); centered unless alignLeft/alignRight is set
+function addCaption(parent, text, size, alignLeft, alignRight) {
   addTextRow(parent, text, {
     font: font(size),
     color: brandYellow,
-    alignLeft
+    alignLeft,
+    alignRight
   });
 }
 
 // Bold monetary value; colored by sign unless colorOverride is given.
-// Centered unless alignLeft is set. A minWidth (points) reserves fixed room
-// for the row so the column width stays stable across amounts. In the medium
-// layout every amount is left-padded to the same character count, so the lines
-// are equal length and, in a monospace font, end on the same right edge: the
-// values right-justify and the cents line up without estimating glyph widths.
-function addAmount(parent, value, size, colorOverride, alignLeft, minWidth) {
+// Centered unless alignLeft or alignRight is set. A minWidth (points) reserves
+// fixed room for the row so the column width stays stable across amounts. In
+// the medium layout every amount is left-padded to the same character count, so
+// the lines are equal length and, in a monospace font, end on the same right
+// edge: the values right-justify and the cents line up without estimating glyph
+// widths. The small layout right-aligns instead, which lines up the cents since
+// every amount shares a two-digit fraction.
+function addAmount(parent, value, size, colorOverride, alignLeft, minWidth, alignRight) {
   let text = formatMoney(value);
   if (alignLeft && minWidth) {
     text = text.padStart(MAX_MONEY.length);
@@ -921,7 +933,8 @@ function addAmount(parent, value, size, colorOverride, alignLeft, minWidth) {
   const { row, label } = addTextRow(parent, text, {
     font: boldFont(size),
     color: colorOverride || (value < 0 ? lossRed : brandGreen),
-    alignLeft
+    alignLeft,
+    alignRight
   });
   label.lineLimit = 1;
   label.minimumScaleFactor = 0.5;
