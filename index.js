@@ -45,7 +45,7 @@ const DEFAULT_URL = "lunchmoney://transactions";
 // CACHE_KEY + CACHED_MS: cache file name and how long a fresh copy stays usable
 const BASE_FILE = 'LunchMoneyWidget';
 const API_KEY = "lunchMoneyApiKey";
-const CACHE_KEY = "lunchMoneyCache_v4";
+const CACHE_KEY = "lunchMoneyCache";
 const CACHED_MS = 600000; // 10 minutes
 
 // v2 renamed "uncleared" to "unreviewed"; match either so accounts mid-migration work
