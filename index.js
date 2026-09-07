@@ -78,6 +78,11 @@ const PADDING_Y = 28; // setPadding(14, 10, 14, 10)
 const STACK_SPACING = 2; // mainStack.spacing
 const HEADER_H = lineHeight(12) + STACK_SPACING + lineHeight(11); // title + period
 
+// Inner content width for the medium widget on the taller (~170pt) variant:
+// 364pt family minus the 10pt side padding. Kept up here (before SETUP) because
+// the widget build reads it while computing the payee truncation budget.
+const MEDIUM_INNER_WIDTH = 344;
+
 /****************************************************
              SETUP - runs every time the widget loads
 *****************************************************/
@@ -761,10 +766,6 @@ function addTransactionRow(parent, t, config) {
 
   parent.addSpacer(3);
 }
-
-// Inner content width for the medium widget on the taller (~170pt) variant:
-// 364pt family minus the 10pt side padding, used to budget payee truncation.
-const MEDIUM_INNER_WIDTH = 344;
 
 // Max payee characters in the medium (review) list so a name truncates with
 // "…" while always leaving room for a fixed gap and the widest signed amount
