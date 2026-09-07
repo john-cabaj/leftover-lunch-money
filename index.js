@@ -58,7 +58,7 @@ const MONTHS = ["January", "February", "March", "April", "May", "June", "July", 
 const USE_PAY_CYCLE = args.widgetParameter != null;
 
 // Per-widget-family styling. small and the in-app preview share a layout.
-const smallLayout = { layout: "stacked", caption: 11, inflowAmount: 20, leftoverAmount: 25 };
+const smallLayout = { layout: "stacked", caption: 10, inflowAmount: 17, leftoverAmount: 19 };
 const FAMILY_LAYOUTS = {
   small:      smallLayout,
   medium:     { layout: "review", header: true, caption: 13, amount: 26, leftoverAmount: 30, detailFont: 11, payeeLen: 28 },
@@ -535,6 +535,7 @@ function writeCache(data) {
 function renderWidget(mainStack, data, config) {
   switch (config.layout) {
     case "stacked":
+      addCompactTitle(mainStack);
       addStackedMetrics(mainStack, data, config);
       break;
     case "review":
@@ -577,6 +578,18 @@ function addStackedMetrics(parent, data, config) {
   stack.layoutWeight = 1;
   stack.url = BUDGET_URL;
   addMetrics(stack, data, config, config.inflowAmount, config.leftoverAmount);
+}
+
+// Brand title row for the small stacked widget
+function addCompactTitle(mainStack) {
+  const row = mainStack.addStack();
+  row.layoutHorizontally();
+  row.addSpacer();
+  const title = row.addText("LUNCH MONEY v25");
+  title.font = Font.boldSystemFont(12);
+  title.textColor = brandGreen;
+  title.centerAlignText();
+  row.addSpacer();
 }
 
 // Inflow / Leftover / Outflow across the width as three equal columns that scale
@@ -730,7 +743,7 @@ function addHeader(mainStack) {
   const titleRow = mainStack.addStack();
   titleRow.layoutHorizontally();
   titleRow.addSpacer();
-  const title = titleRow.addText("LUNCH MONEY v22");
+  const title = titleRow.addText("LUNCH MONEY v25");
   title.font = Font.boldSystemFont(12);
   title.textColor = brandGreen;
   title.centerAlignText();
