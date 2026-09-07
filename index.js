@@ -67,6 +67,16 @@ const FAMILY_LAYOUTS = {
   undefined:  smallLayout
 };
 
+// Approximate line height for a given font size, matching Menlo's metrics
+function lineHeight(size) { return Math.ceil(size * 1.25); }
+
+// Height reserved by the widget's fixed padding, header, and per-layout chrome.
+// Declared up here (before SETUP runs) so height math can use them safely.
+const WIDGET_HEIGHTS = { review: 155, overview: 345 };
+const PADDING_Y = 28; // setPadding(14, 10, 14, 10)
+const STACK_SPACING = 2; // mainStack.spacing
+const HEADER_H = lineHeight(12) + STACK_SPACING + lineHeight(11); // title + period
+
 /****************************************************
              SETUP - runs every time the widget loads
 *****************************************************/
@@ -76,9 +86,6 @@ const LM_ACCESS_TOKEN = await getApiKey();
 const widget = await getWidget();
 
 Script.setWidget(widget);
-if (config.runsInApp && args.widgetParameter != "nopreview") {
-  widget.presentMedium();
-}
 Script.complete();
 
 /****************************************************
@@ -650,24 +657,17 @@ function addUnreviewedItems(parent, data, config) {
   }
 }
 
-// Approximate line height for a given font size, matching Menlo's metrics
-function lineHeight(size) { return Math.ceil(size * 1.25); }
-
-// Height reserved by the widget's fixed padding, header, and per-layout chrome
-const PADDING_Y = 28; // setPadding(14, 10, 14, 10)
-const STACK_SPACING = 2; // mainStack.spacing
-const HEADER_H = lineHeight(12) + STACK_SPACING + lineHeight(11); // title + period
-
 // Vertical points available to the unreviewed list after padding, header,
 // spacers, metric rows, and the section caption are accounted for
 function listHeightBudget(config) {
+  const height = WIDGET_HEIGHTS[config.layout];
   if (config.layout === "review") {
     // medium: list shares the row's fixed height with the metrics column
-    return 155 - PADDING_Y - HEADER_H - 6 - lineHeight(config.caption);
+    return height - PADDING_Y - HEADER_H - 6 - lineHeight(config.caption);
   }
   if (config.layout === "overview") {
     const metricRowH = lineHeight(config.caption) + STACK_SPACING + lineHeight(config.amount);
-    return 345 - PADDING_Y - HEADER_H - 8 - metricRowH - 14 - lineHeight(config.caption);
+    return height - PADDING_Y - HEADER_H - 8 - metricRowH - 14 - lineHeight(config.caption);
   }
   return 0;
 }
@@ -730,7 +730,7 @@ function addHeader(mainStack) {
   const titleRow = mainStack.addStack();
   titleRow.layoutHorizontally();
   titleRow.addSpacer();
-  const title = titleRow.addText("LUNCH MONEY v20");
+  const title = titleRow.addText("LUNCH MONEY v21");
   title.font = Font.boldSystemFont(12);
   title.textColor = brandGreen;
   title.centerAlignText();
