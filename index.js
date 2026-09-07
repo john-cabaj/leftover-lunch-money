@@ -147,6 +147,7 @@ async function getWidget() {
   widget.backgroundGradient = getLinearGradient(COLORS.bg1, COLORS.bg2);
 
   const widgetFamily = config.widgetFamily;
+  const layoutConfig = FAMILY_LAYOUTS[widgetFamily] || FAMILY_LAYOUTS.undefined;
 
   let lunchMoneyData = null;
   let errorMessage = null;
@@ -164,13 +165,12 @@ async function getWidget() {
   }
 
   if (errorMessage) {
-    addErrorState(widget, errorMessage);
+    addErrorState(widget, errorMessage, layoutConfig);
     return widget;
   }
 
   // Render the chosen family layout into a vertical stack; anything not
   // assigned a specific tap target falls through to the transactions view
-  const layoutConfig = FAMILY_LAYOUTS[widgetFamily] || FAMILY_LAYOUTS.undefined;
   const mainStack = widget.addStack();
   mainStack.layoutVertically();
   mainStack.spacing = 2;
@@ -181,8 +181,8 @@ async function getWidget() {
 }
 
 // "Leftover" caption plus the given error message, centered
-function addErrorState(widget, message) {
-  addCaption(widget, "Leftover", 11);
+function addErrorState(widget, message, config) {
+  addCaption(widget, "Leftover", config.caption);
   addCenteredText(widget, message, {
     font: smallFont,
     color: regularColor,
