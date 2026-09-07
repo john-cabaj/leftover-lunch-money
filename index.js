@@ -593,6 +593,7 @@ function renderWidget(mainStack, data, config) {
   switch (config.layout) {
     case "stacked":
       addBrandTitle(mainStack);
+      mainStack.addSpacer();
       addStackedMetrics(mainStack, data, config);
       break;
     case "review":
