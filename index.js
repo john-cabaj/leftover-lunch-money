@@ -70,18 +70,46 @@ const FAMILY_LAYOUTS = {
 // Approximate line height for a given font size, matching Menlo's metrics
 function lineHeight(size) { return Math.ceil(size * 1.25); }
 
-// Height reserved by the widget's fixed padding, header, and per-layout chrome.
-// Declared up here (before SETUP runs) so height math can use them safely.
-// review: 172 (not 155) so five unreviewed rows fit on taller (~170pt) medium widgets.
-const WIDGET_HEIGHTS = { review: 172, overview: 345 };
+// Widget container sizes (pt) for the medium and large widgets by device screen
+// (portrait points). Read from Device.screenSize() before SETUP so the width and
+// row budgets scale to whatever iPhone this runs on; unknown sizes fall back to
+// the X-class (329x155) family. Values follow Apple's widget HIG.
+function widgetSizes() {
+  const h = Math.max(Device.screenSize().width, Device.screenSize().height);
+  const SPEC = {
+    932: [364, 170, 382], // 14/15/16 Pro Max, 13 Pro Max
+    926: [364, 170, 382], // 428x926 Max phones
+    896: [360, 169, 379], // 11, XR, XS Max, 11 Pro Max
+    874: [338, 158, 354], // 16 Pro
+    852: [338, 158, 354], // 15 Pro, 15
+    844: [338, 158, 354], // 12/13/14 Pro, 12/13/14
+    812: [329, 155, 345], // X, XS, 11 Pro, 12/13 mini
+    780: [329, 155, 345], // 360x780 compact phones
+    736: [348, 157, 357], // 7/8 Plus
+    667: [321, 148, 324], // 7/8, SE 2nd/3rd gen
+    568: [292, 141, 311]  // SE 1st gen
+  }[h] || [329, 155, 345];
+  return { width: SPEC[0], medium: SPEC[1], large: SPEC[2] };
+}
+
+const WIDGET_SIZE = widgetSizes();
+// Height budget per layout. Declared up here (before SETUP) so row math can use
+// them safely. review keeps +2pt slack so five unreviewed rows fit on the
+// taller (~170pt) medium widgets.
+const WIDGET_HEIGHTS = { review: WIDGET_SIZE.medium + 2, overview: WIDGET_SIZE.large };
 const PADDING_Y = 28; // setPadding(14, 10, 14, 10)
 const STACK_SPACING = 2; // mainStack.spacing
 const HEADER_H = lineHeight(12) + STACK_SPACING + lineHeight(11); // title + period
 
-// Inner content width for the medium widget on the taller (~170pt) variant:
-// 364pt family minus the 10pt side padding. Kept up here (before SETUP) because
-// the widget build reads it while computing the payee truncation budget.
-const MEDIUM_INNER_WIDTH = 344;
+// Inner content width for the medium widget: container width minus the 10pt
+// side padding. Kept up here (before SETUP) because the widget build reads it
+// while computing the payee budget and the review split.
+const MEDIUM_INNER_WIDTH = WIDGET_SIZE.width - 20;
+
+// Medium review split: the metrics column keeps the smaller share so the
+// unreviewed list gets the rest (27% / 73% of the inner width).
+const METRICS_WEIGHT = 27;
+const LIST_WEIGHT = 73;
 
 /****************************************************
              SETUP - runs every time the widget loads
@@ -646,7 +674,7 @@ function addReviewSplit(mainStack, data, config) {
 
   const left = row.addStack();
   left.layoutVertically();
-  left.layoutWeight = 27;
+  left.layoutWeight = METRICS_WEIGHT;
   left.url = BUDGET_URL;
   addMetrics(left, data, config, config.amount, config.leftoverAmount || config.amount, true);
   left.addSpacer();
@@ -654,7 +682,7 @@ function addReviewSplit(mainStack, data, config) {
 
   const right = row.addStack();
   right.layoutVertically();
-  right.layoutWeight = 73;
+  right.layoutWeight = LIST_WEIGHT;
   right.url = UNREVIEWED_URL;
   addCaption(right, "Unreviewed", config.caption, true);
   addUnreviewedItems(right, data, config);
@@ -769,12 +797,14 @@ function addTransactionRow(parent, t, config) {
 
 // Max payee characters in the medium (review) list so a name truncates with
 // "…" while always leaving room for a fixed gap and the widest signed amount
-// on the same line — the payee can then never reach its own amount.
+// on the same line — the payee can then never reach its own amount. Measured
+// against the list column's real width (its share of the inner width), not the
+// whole widget, so long names use the space the layout actually gives them.
 function mediumPayeeBudget(config) {
   const fs = config.detailFont || 9;
   const amountW = textWidth("+$999,999.99", fs);
-  const columns = metricColumnWidth(config.amount, config.leftoverAmount || config.amount, true);
-  const room = Math.max(0, MEDIUM_INNER_WIDTH - columns - 8 - amountW);
+  const listW = (MEDIUM_INNER_WIDTH * LIST_WEIGHT) / (METRICS_WEIGHT + LIST_WEIGHT);
+  const room = Math.max(0, listW - 8 - amountW);
   return Math.max(4, Math.floor(room / (0.6 * fs)));
 }
 
