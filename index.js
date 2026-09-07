@@ -395,9 +395,6 @@ function formatMoney(value) {
   return (value < 0 ? "-" : "") + "$" + grouped + "." + dec;
 }
 
-// Widest leftover rendered, so the medium metrics column reserves stable room
-const LARGE_LEFTOVER_STRING = formatMoney(99999);
-
 // Menlo is monospace: advance width ≈ 0.6em, so glyph-count × 0.6 × size
 function textWidth(str, size) {
   return String(str).length * 0.6 * size;
@@ -665,7 +662,7 @@ function addMetrics(parent, data, config, amountSize, leftoverSize, alignLeft) {
   addAmount(parent, data.outflow, amountSize, regularColor, alignLeft);
   addCaption(parent, "Leftover", config.caption, alignLeft);
   addAmount(parent, data.savings, leftoverSize, undefined, alignLeft,
-           alignLeft ? textWidth(LARGE_LEFTOVER_STRING, leftoverSize) : undefined);
+           alignLeft ? textWidth(formatMoney(99999), leftoverSize) : undefined);
 }
 
 // Every unreviewed transaction that fits without clipping, or an inline
@@ -811,8 +808,8 @@ function addAmount(mainStack, value, size, colorOverride, alignLeft, minWidth) {
     row.addSpacer();
   }
   if (minWidth) {
-    const textWidth = String(formatMoney(value)).length * 0.6 * size;
-    const extra = minWidth - textWidth;
+    const str = formatMoney(value);
+    const extra = minWidth - (str.length * 0.6 * size);
     if (extra > 0) row.addSpacer(extra);
   }
 }
