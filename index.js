@@ -72,7 +72,8 @@ function lineHeight(size) { return Math.ceil(size * 1.25); }
 
 // Height reserved by the widget's fixed padding, header, and per-layout chrome.
 // Declared up here (before SETUP runs) so height math can use them safely.
-const WIDGET_HEIGHTS = { review: 155, overview: 345 };
+// review: 172 (not 155) so five unreviewed rows fit on taller (~170pt) medium widgets.
+const WIDGET_HEIGHTS = { review: 172, overview: 345 };
 const PADDING_Y = 28; // setPadding(14, 10, 14, 10)
 const STACK_SPACING = 2; // mainStack.spacing
 const HEADER_H = lineHeight(12) + STACK_SPACING + lineHeight(11); // title + period
