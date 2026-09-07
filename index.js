@@ -648,8 +648,9 @@ function addBreakdownLayout(mainStack, data, config) {
 }
 
 // Inflow / Outflow / Leftover stacked vertically (small, in-app preview).
-// Captions and amounts hug the right edge so the cents line up across rows.
-// The stack fills the whole widget so any tap opens Budget.
+// Captions stay centered; only the monetary amounts hug the right edge so the
+// cents line up across rows. The stack fills the whole widget so any tap opens
+// Budget.
 function addStackedMetrics(parent, data, config) {
   const stack = parent.addStack();
   stack.layoutVertically();
@@ -740,7 +741,7 @@ function addMetrics(parent, data, config, amountSize, leftoverSize, alignLeft, a
     ["Leftover", data.savings, leftoverSize, undefined]
   ];
   for (const [label, value, size, color] of metrics) {
-    addCaption(parent, label, config.caption, alignLeft, alignRight);
+    addCaption(parent, label, config.caption, alignLeft);
     addAmount(parent, value, size, color, alignLeft, columnWidth, alignRight);
   }
 }
@@ -907,13 +908,12 @@ function addTextRow(parent, text, options) {
   return { row, label };
 }
 
-// Yellow label (e.g. "Inflow", "Leftover"); centered unless alignLeft/alignRight is set
-function addCaption(parent, text, size, alignLeft, alignRight) {
+// Yellow label (e.g. "Inflow", "Leftover"); centered unless alignLeft is set
+function addCaption(parent, text, size, alignLeft) {
   addTextRow(parent, text, {
     font: font(size),
     color: brandYellow,
-    alignLeft,
-    alignRight
+    alignLeft
   });
 }
 
