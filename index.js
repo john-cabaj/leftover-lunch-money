@@ -1,19 +1,43 @@
+/*******************************************************************************
+ *                                                                             *
+ *   LUNCH MONEY WIDGET — a Scriptable home-screen widget.                    *
+ *                                                                             *
+ *   Pulls the current budget period's totals and unreviewed transactions      *
+ *   from the Lunch Money API, computes the period leftover, and renders it    *
+ *   as a family-specific layout (small / medium / large / extraLarge).        *
+ *                                                                             *
+ *   Layout rules of the road:                                                 *
+ *     - Every size/measurement used to lay anything out is a named constant   *
+ *       up front, so tweaks stay in one place and translate to Scriptable's   *
+ *       point-based coordinates.                                              *
+ *     - Row budgets are derived from the device's real widget container size  *
+ *       (see widgetSizes) so lists never overflow the bottom edge.            *
+ *     - Tap targets are set on stacks, not on the widget itself, so each      *
+ *       region of a medium/large widget can deep-link where it should.        *
+ *                                                                             *
+ ******************************************************************************/
+
 /****************************************************
              CONFIGURATION
 *****************************************************/
-// Widget background gradient (top and bottom colors)
+
+// Widget background: two-stop top-to-bottom gradient (subtle depth)
 const COLORS = {
   bg1: '#1D1F21',
   bg2: '#282A2E'
 };
 
-// BRAND_GREEN: positive amounts / title; BRAND_YELLOW: captions/labels;
-// LOSS_RED: negative leftover
+// Brand palette. Roles:
+//   BRAND_GREEN — positive figures + the product title
+//   BRAND_YELLOW — captions / section labels
+//   LOSS_RED    — a negative leftover
 const BRAND_GREEN = '#44958C';
 const BRAND_YELLOW = '#FBB700';
 const LOSS_RED = '#E15554';
 
-// Monospace typography for a terminal feel; white is the default text color
+// Monospace typography for a terminal feel. Every figure is set in Menlo so
+// all digits share one advance width — which is what makes amounts right-
+// adjust and line up. White is the default text color.
 const FONT_NAME = "Menlo";
 const FONT_BOLD = "Menlo-Bold";
 const regularFont = new Font(FONT_NAME, 11);
@@ -24,7 +48,7 @@ const regularColor = Color.white();
 const brandGreen = new Color(BRAND_GREEN);
 const brandYellow = new Color(BRAND_YELLOW);
 const lossRed = new Color(LOSS_RED);
-// iOS system green / red flags income (+) vs expenses (-) in a transaction row
+// iOS system green / red flag income (+) vs expenses (-) in a transaction row
 const incomeGreen = new Color('#34C759');
 const expenseRed = new Color('#FF3B30');
 
@@ -32,16 +56,46 @@ const expenseRed = new Color('#FF3B30');
 function font(size) { return new Font(FONT_NAME, size); }
 function boldFont(size) { return new Font(FONT_BOLD, size); }
 
-// Lunch Money API base URL
+// --------------------------------------------------------------------------
+// Money metrics. Single table of the three money rows every layout renders;
+// each row knows how to label itself and pull its value from loaded data.
+//   - inflow / outflow stay white (fixed color)
+//   - leftover is sign-colored: green when positive, red when negative
+// Layouts pick their own display ORDER and per-metric sizes; this table only
+// guarantees the same value and style logic everywhere.
+// --------------------------------------------------------------------------
+const METRICS = [
+  { id: "inflow",   label: "Inflow",   value: (d) => Math.abs(d.inflow), color: regularColor },
+  { id: "outflow",  label: "Outflow",  value: (d) => d.outflow,         color: regularColor },
+  { id: "leftover", label: "Leftover", value: (d) => d.savings,         color: undefined }
+];
+function getMetric(id) { return METRICS.find((m) => m.id === id); }
+
+// Widest monetary strings the layout budgets around: the 10-char figure every
+// amount pads/right-justifies to, and the signed worst case a transaction row
+// reserves next to its payee. DECLARED UP HERE because (a) the small layout's
+// amount font derives from MAX_MONEY's width, and (b) the payee budget for the
+// medium list needs the signed worst case. (formatMoney is a hoisted function,
+// so calling it during module init is fine.)
+const MAX_MONEY = formatMoney(99999);
+const MAX_SIGNED_MONEY = "+$999,999.99";
+
+// --------------------------------------------------------------------------
+// Lunch Money API
+// --------------------------------------------------------------------------
 const BASE_URL = 'https://api.lunchmoney.dev/v2';
 
-// Tap targets: the default (widget) opens the transactions list; the metrics
+// Tap targets: the widget-wide default opens the transactions list; the metrics
 // and unreviewed regions override it with their own targets
 const BUDGET_URL = "lunchmoney://budget";
 const UNREVIEWED_URL = "lunchmoney://transactions?status=unreviewed&include_pending=true";
 const DEFAULT_URL = "lunchmoney://transactions";
 
-// BASE_FILE: folder for cached data; API_KEY: Keychain entry for the API token;
+// --------------------------------------------------------------------------
+// Local storage
+// --------------------------------------------------------------------------
+// BASE_FILE: folder (under Scriptable's Documents dir) for cache + diagnostics;
+// API_KEY: the Keychain entry holding the API token;
 // CACHE_KEY + CACHED_MS: cache file name and how long a fresh copy stays usable
 const BASE_FILE = 'LunchMoneyWidget';
 const API_KEY = "lunchMoneyApiKey";
@@ -54,18 +108,24 @@ const UNREVIEWED_STATUSES = ["unreviewed", "uncleared"];
 // Month names for the header label
 const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 
-// Setting a widget parameter switches the header to "CURRENT PAY CYCLE"
+// Setting a widget parameter switches the header from the month to
+// "CURRENT PAY CYCLE"
 const USE_PAY_CYCLE = args.widgetParameter != null;
+
+// --------------------------------------------------------------------------
+// Geometry
+// --------------------------------------------------------------------------
 
 // Approximate line height for a given font size. Menlo's line box is tight
 // (≈1.15× the point size), so this deliberately under-reserves the height the
 // layout actually needs, letting the row budgets fit the last row.
 function lineHeight(size) { return Math.ceil(size * 1.15); }
 
-// Widget container sizes (pt) for the small, medium, and large widgets by device
-// screen (portrait points). Read from Device.screenSize() before SETUP so the
-// width and row budgets scale to whatever iPhone this runs on; unknown sizes
-// fall back to the X-class (329x155) family. Values follow Apple's widget HIG.
+// Widget container sizes (pt) for the small, medium, and large widgets by
+// device screen (portrait points). Read from Device.screenSize() so the width
+// and row budgets scale to whatever iPhone this runs on; unknown sizes fall
+// back to the X-class (329x155) family. Values follow Apple's widget HIG. Each
+// row is [width, small, medium, large].
 function widgetSizes() {
   const h = Math.max(Device.screenSize().width, Device.screenSize().height);
   const SPEC = {
@@ -85,41 +145,36 @@ function widgetSizes() {
 }
 
 const WIDGET_SIZE = widgetSizes();
-// Height budget per layout. Declared up here (before SETUP) so row math can use
-// them safely. review keeps +2pt slack so the last row isn't clipped on the
-// taller (~170pt) medium widgets.
+// Height budget per layout. review keeps +2pt slack so the last row isn't
+// clipped on the taller (~170pt) medium widgets.
 const WIDGET_HEIGHTS = { review: WIDGET_SIZE.medium + 2, overview: WIDGET_SIZE.large };
-const PADDING_Y = 28; // setPadding(14, 10, 14, 10)
-const STACK_SPACING = 2; // mainStack.spacing
-// Sizes of the two header rows (LUNCH MONEY title and the period label below);
-// HEADER_H reserves exactly their height. The title renders with
-// Font.boldSystemFont(TITLE_SIZE), the period with regularFont (11pt).
+const PADDING_Y = 28;      // setPadding(14, 10, 14, 10)
+const STACK_SPACING = 2;   // mainStack.spacing
+
+// Sizes of the two header rows (LUNCH MONEY title and the period label below,
+// the period rendered with regularFont at 11pt); HEADER_H reserves exactly
+// their combined height. The title renders with Font.boldSystemFont(TITLE_SIZE).
 const TITLE_SIZE = 12;
 const PERIOD_SIZE = 11;
 const HEADER_H = lineHeight(TITLE_SIZE) + STACK_SPACING + lineHeight(PERIOD_SIZE);
 
 // Inner content width for the medium widget: container width minus the 10pt
-// side padding. Kept up here (before SETUP) because the widget build reads it
-// while computing the payee budget and the review split.
+// side padding. The widget build reads it while computing the payee budget
+// and the review split.
 const MEDIUM_INNER_WIDTH = WIDGET_SIZE.width - 20;
 
 // Medium review split: the metrics column keeps the smaller share so the
-// unreviewed list gets the rest (31% / 69% of the inner width). The metrics
-// share is a couple points larger than the amounts' text so the 30pt figures
-// and their gap to the list fit; the extra comes out of the list's width.
+// unreviewed list gets the rest (31% / 69% of the inner width).
 const METRICS_WEIGHT = 31;
 const LIST_WEIGHT = 69;
 
-// Widest monetary strings the layout budgets around: the 10-char figure every
-// amount pads/right-justifies to, and the signed worst case a transaction row
-// reserves next to its payee. Declared above SETUP (formatMoney is hoisted).
-const MAX_MONEY = formatMoney(99999);
-const MAX_SIGNED_MONEY = "+$999,999.99";
+// --------------------------------------------------------------------------
+// Per-widget-family styling
+// --------------------------------------------------------------------------
 
-// Per-widget-family styling. small and the in-app preview share a layout, and
-// the amount font derives from the max displayable value rather than a fixed
-// point size: the largest size where MAX_MONEY ("$99,999.00") still fits the
-// inner width and the three caption+amount rows fit the small widget height.
+// small and the in-app preview share a layout; the amount font is derived
+// rather than fixed: the largest size where MAX_MONEY ("$99,999.00") still
+// fits the inner width AND the three caption+amount rows fit the widget height.
 const SMALL_CAPTION = 10;
 function smallAmountFont() {
   const innerWidth = WIDGET_SIZE.width - 20; // 10pt side padding each edge
@@ -135,9 +190,9 @@ function smallAmountFont() {
 const smallLayout = { layout: "stacked", caption: SMALL_CAPTION, inflowAmount: smallAmountFont(), leftoverAmount: smallAmountFont() };
 const FAMILY_LAYOUTS = {
   small:      smallLayout,
-  medium:     { layout: "review", header: true, caption: 13, amount: 30, leftoverAmount: 30, detailFont: 11, payeeLen: 28 },
-  large:      { layout: "overview", header: true, caption: 14, amount: 30, detailFont: 12, payeeLen: 30 },
-  extraLarge: { layout: "breakdown", header: true, caption: 15, amount: 46, detailFont: 11 },
+  medium:     { layout: "review", caption: 13, amount: 30, leftoverAmount: 30, detailFont: 11, payeeLen: 28 },
+  large:      { layout: "overview", caption: 14, amount: 30, detailFont: 12, payeeLen: 30 },
+  extraLarge: { layout: "breakdown", caption: 15, amount: 46, detailFont: 11 },
   undefined:  smallLayout
 };
 
@@ -190,7 +245,7 @@ async function getWidget() {
   // assigned a specific tap target falls through to the transactions view
   const mainStack = widget.addStack();
   mainStack.layoutVertically();
-  mainStack.spacing = 2;
+  mainStack.spacing = STACK_SPACING;
   widget.url = layoutConfig.layout === "stacked" ? BUDGET_URL : DEFAULT_URL;
   renderWidget(mainStack, lunchMoneyData, layoutConfig);
 
@@ -236,7 +291,7 @@ function getLinearGradient(color1, color2) {
 }
 
 /****************************************************
-             API
+             DATA LAYER - API + cache
 *****************************************************/
 
 // Returns the stored API key, prompting once and saving it if none exists yet
@@ -259,8 +314,8 @@ async function getApiKey() {
   return apiKey;
 }
 
-// Fetches the summary + categories for the current budget period, computes leftovers,
-// and pulls the latest unreviewed transactions in the same range
+// Fetches the summary + categories for the current budget period, computes the
+// leftover, and pulls the latest unreviewed transactions in the same range
 async function lunchMoneyLeftoverInfo() {
   if (!LM_ACCESS_TOKEN) {
     return null;
@@ -286,9 +341,9 @@ async function lunchMoneyLeftoverInfo() {
   }
 }
 
-// Recent transactions awaiting review in the period, newest first. Filters client-side
-// so both v1 ("uncleared") and v2 ("unreviewed") statuses are recognized, and reports a
-// status breakdown when nothing matches
+// Recent transactions awaiting review in the period, newest first. Filters
+// client-side so both v1 ("uncleared") and v2 ("unreviewed") statuses are
+// recognized, and reports a status breakdown when nothing matches
 async function fetchUnreviewedTransactions(range) {
   try {
     const data = await sendLunchMoneyRequest(`${BASE_URL}/transactions`, {
@@ -342,14 +397,14 @@ function sendLunchMoneyRequest(url, params = {}) {
 }
 
 /****************************************************
-             Leftover Calculation
+             LEFTOVER CALCULATION
 *****************************************************/
 
-// Expands summary rows into per-category budget/activity data, applying group rules
-function categoryRows(summary, categories) {
+// Indexes every category (recursively, so children of groups are found) into a
+// { id → metadata } map plus a name map for quick lookups later
+function indexCategories(categories) {
   const info = {};
   const names = {};
-  // Index every category (recursively) by id for quick lookups later
   const add = (category) => {
     info[category.id] = {
       isIncome: category.is_income,
@@ -360,14 +415,16 @@ function categoryRows(summary, categories) {
     if (Array.isArray(category.children)) category.children.forEach(add);
   };
   (categories.categories || []).forEach(add);
+  return { info, names };
+}
 
-  // Start from every non-income entry
-  const rows = (summary.categories || []).filter((entry) => !(info[entry.category_id] || {}).isIncome);
-
-  // Track which groups and which children have budgets, to avoid double counting
+// Which categories carry budgets at the group level versus in their children,
+// so rows that merely mirror an already-budgeted parent/child stay out of the
+// sum (see shouldCountEntry)
+function budgetGrouping(entries, info) {
   const groupedBudgeted = {};
   const groupHasBudgetedChildren = {};
-  for (const entry of rows) {
+  for (const entry of entries) {
     const c = info[entry.category_id] || {};
     if (c.isGroup && entry.totals.budgeted != null) {
       groupedBudgeted[entry.category_id] = true;
@@ -375,32 +432,64 @@ function categoryRows(summary, categories) {
       groupHasBudgetedChildren[c.groupId] = true;
     }
   }
+  return { groupedBudgeted, groupHasBudgetedChildren };
+}
 
-  // Filter out double-counted rows, then shape each into a clean row object.
-  // The contribution is derived from the same figure the row already computes.
-  return rows
+// Shapes one summary entry into a clean budget row { name, initialBudget,
+// activity, rollover, available, contribution }. The contribution is derived
+// from the same figure the row already computes.
+function shapeBudgetRow(entry, info, names) {
+  const initialBudget = entry.totals.budgeted;
+  const activity = (entry.totals.other_activity || 0) + (entry.totals.recurring_activity || 0);
+  const rollover = entry.rollover_pool ? (entry.rollover_pool.budgeted_to_base || 0) : 0;
+  const available = entry.totals.available != null
+    ? entry.totals.available
+    : (initialBudget != null ? initialBudget + rollover - activity : null);
+  // Budgeted categories spend at most their budget; over-budget categories
+  // spend the full original budget plus the overspend. Unbudgeted categories
+  // spend their activity.
+  const contribution = initialBudget == null
+    ? activity
+    : (available >= 0 ? initialBudget : initialBudget - available);
+  return {
+    name: names[entry.category_id] || entry.category_id,
+    initialBudget,
+    activity,
+    rollover,
+    available,
+    contribution
+  };
+}
+
+// Expands summary rows into per-category budget/activity data, applying group
+// rules so groups and their children are never both counted
+function categoryRows(summary, categories) {
+  const { info, names } = indexCategories(categories);
+
+  // Start from every non-income entry
+  const entries = (summary.categories || []).filter((entry) => !(info[entry.category_id] || {}).isIncome);
+
+  // Track which groups and which children hold budgets, to avoid double counting
+  const { groupedBudgeted, groupHasBudgetedChildren } = budgetGrouping(entries, info);
+
+  // Drop double-counted rows, then shape each survivor into a clean row object
+  return entries
     .filter((entry) => shouldCountEntry(entry, info[entry.category_id] || {}, groupedBudgeted, groupHasBudgetedChildren))
-    .map((entry) => {
-      const initialBudget = entry.totals.budgeted;
-      const activity = (entry.totals.other_activity || 0) + (entry.totals.recurring_activity || 0);
-      const rollover = entry.rollover_pool ? (entry.rollover_pool.budgeted_to_base || 0) : 0;
-      const available = entry.totals.available != null
-        ? entry.totals.available
-        : (initialBudget != null ? initialBudget + rollover - activity : null);
-      // Budgeted categories spend at most their budget; over-budget categories spend the
-      // full original budget plus the overspend. Unbudgeted categories spend their activity.
-      const contribution = initialBudget == null
-        ? activity
-        : (available >= 0 ? initialBudget : initialBudget - available);
-      return {
-        name: names[entry.category_id] || entry.category_id,
-        initialBudget,
-        activity,
-        rollover,
-        available,
-        contribution
-      };
-    });
+    .map((entry) => shapeBudgetRow(entry, info[entry.category_id] || {}, names));
+}
+
+// A child row counts only when its group's budget is actually held at the
+// group level; a group row counts only when it carries its own budget and no
+// children do
+function shouldCountEntry(entry, info, groupedBudgeted, groupHasBudgetedChildren) {
+  if (info.groupId != null) {
+    return !(groupedBudgeted[info.groupId] && !groupHasBudgetedChildren[info.groupId]);
+  }
+  if (info.isGroup) {
+    if (entry.totals.budgeted == null) return false;
+    if (groupHasBudgetedChildren[entry.category_id]) return false;
+  }
+  return true;
 }
 
 // Money in this period minus what we're on the hook to spend in it
@@ -419,20 +508,7 @@ function computeLeftover(summary, categories) {
   };
 }
 
-// A child row counts only when its group's budget is actually held at the group level;
-// a group row counts only when it carries its own budget and no children do
-function shouldCountEntry(entry, info, groupedBudgeted, groupHasBudgetedChildren) {
-  if (info.groupId != null) {
-    return !(groupedBudgeted[info.groupId] && !groupHasBudgetedChildren[info.groupId]);
-  }
-  if (info.isGroup) {
-    if (entry.totals.budgeted == null) return false;
-    if (groupHasBudgetedChildren[entry.category_id]) return false;
-  }
-  return true;
-}
-
-// Inflow is derived from the summary's inflow breakdown fields
+// Inflow is the sum of the summary's inflow breakdown fields
 function totalFromBreakdown(breakdown) {
   if (!breakdown) return 0;
   let total = 0;
@@ -443,7 +519,7 @@ function totalFromBreakdown(breakdown) {
 }
 
 /****************************************************
-             Utilities
+             UTILITIES - formatting + calendar
 *****************************************************/
 
 // "$847.22" / "-$1,428.47" style formatting (sign preserved, thousands grouping)
@@ -470,7 +546,9 @@ function parseIsoDate(value) {
   return new Date(+parts[0], +parts[1] - 1, +parts[2]);
 }
 
-// Moves date by count budget periods using the account's period quantity + granularity
+// Steps date by count budget periods using the account's period quantity +
+// granularity. Walking back (negative count) is only exercised while searching
+// for a current period whose anchor sits in the future.
 function addBudgetPeriod(date, settings, count) {
   const d = new Date(date.getTime());
   const quantity = settings.budget_period_quantity || 1;
@@ -550,19 +628,27 @@ function getCalendarMonthRange() {
 }
 
 /****************************************************
-             Storage
+             STORAGE
 *****************************************************/
 
-// Full path to the Scriptable folder used for cache + diagnostics
-function storageFolder() {
+// Path helpers: the Scriptable folder used for cache + diagnostics, and the
+// two files inside it
+function widgetFolder() {
   return FileManager.local().documentsDirectory() + "/" + BASE_FILE;
 }
+function cachePath() { return widgetFolder() + "/" + CACHE_KEY; }
+function diagnosticsPath() { return widgetFolder() + "/diagnostics.txt"; }
 
-// Cache and diagnostics paths inside the widget folder
-function cachePath() { return storageFolder() + "/" + CACHE_KEY; }
-function diagnosticsPath() { return storageFolder() + "/diagnostics.txt"; }
+// Idempotently ensures the widget folder exists (createDirectory(_, true) is
+// a no-op when it's already there)
+function ensureWidgetFolder() {
+  const fm = FileManager.local();
+  fm.createDirectory(widgetFolder(), true);
+  return widgetFolder();
+}
 
-// Reads the cached result JSON; TTL-gated unless allowStale is set (offline fallback)
+// Reads the cached result JSON; TTL-gated unless allowStale is set (offline
+// fallback)
 function readCache(allowStale) {
   const fm = FileManager.local();
   const path = cachePath();
@@ -583,8 +669,7 @@ function readCache(allowStale) {
 function writeDiagnostics(line) {
   try {
     const fm = FileManager.local();
-    const folder = storageFolder();
-    fm.createDirectory(folder, true);
+    ensureWidgetFolder();
     const path = diagnosticsPath();
     const prev = fm.fileExists(path) ? fm.readString(path) : "";
     fm.writeString(path, prev + new Date().toISOString() + " " + line + "\n");
@@ -596,13 +681,12 @@ function writeDiagnostics(line) {
 // Persists the latest result to the cache file
 function writeCache(data) {
   const fm = FileManager.local();
-  const folder = storageFolder();
-  fm.createDirectory(folder, true);
+  ensureWidgetFolder();
   fm.writeString(cachePath(), JSON.stringify(data));
 }
 
 /****************************************************
-             Widget Layouts
+             WIDGET LAYOUTS
 *****************************************************/
 
 // Top-level renderer: picks stacked / review / overview / breakdown layouts
@@ -672,26 +756,23 @@ function addBrandTitle(parent) {
 function addMetricRow(parent, data, config) {
   const row = parent.addStack();
   row.layoutHorizontally();
-  const metrics = [
-    ["Inflow", Math.abs(data.inflow)],
-    ["Leftover", data.savings],
-    ["Outflow", data.outflow]
-  ];
-  for (const [label, value] of metrics) {
-    addMetricColumn(row, label, value, config);
+  // Column order varies from the METRICS table: in this split layout Leftover
+  // sits between Inflow and Outflow
+  for (const id of ["inflow", "leftover", "outflow"]) {
+    addMetricColumn(row, getMetric(id), data, config);
   }
   return row;
 }
 
 // One metric column; layoutWeight divides the row equally so it scales across sizes
-function addMetricColumn(parentRow, label, value, config) {
+function addMetricColumn(parentRow, metric, data, config) {
   const col = parentRow.addStack();
   col.layoutVertically();
   col.layoutWeight = 1;
   col.spacing = 2;
-  addCaption(col, label, config.caption);
-  // Leftover colors by sign, other metrics stay white
-  addAmount(col, value, config.amount, label === "Leftover" ? undefined : regularColor);
+  addCaption(col, metric.label, config.caption);
+  // Leftover colors by sign (no override), other metrics stay white
+  addAmount(col, metric.value(data), config.amount, metric.color);
 }
 
 // Large layout: metric columns across the width plus the unreviewed list below
@@ -735,14 +816,10 @@ function addReviewSplit(mainStack, data, config) {
 // list is the same on all three rows, no matter what's in the list.
 function addMetrics(parent, data, config, amountSize, leftoverSize, alignLeft, alignRight) {
   const columnWidth = metricColumnWidth(amountSize, leftoverSize, alignLeft);
-  const metrics = [
-    ["Inflow", Math.abs(data.inflow), amountSize, regularColor],
-    ["Outflow", data.outflow, amountSize, regularColor],
-    ["Leftover", data.savings, leftoverSize, undefined]
-  ];
-  for (const [label, value, size, color] of metrics) {
-    addCaption(parent, label, config.caption, alignLeft);
-    addAmount(parent, value, size, color, alignLeft, columnWidth, alignRight);
+  for (const metric of METRICS) {
+    const size = metric.id === "leftover" ? leftoverSize : amountSize;
+    addCaption(parent, metric.label, config.caption, alignLeft);
+    addAmount(parent, metric.value(data), size, metric.color, alignLeft, columnWidth, alignRight);
   }
 }
 
@@ -815,9 +892,9 @@ function addTransactionRow(parent, t, config) {
   const row = parent.addStack();
   row.layoutHorizontally();
   const fontSize = config.detailFont || 9;
-  // In the medium (review) list the payee is capped by row width so a long name
-  // truncates with "…" instead of running into its amount; other layouts keep
-  // the fixed character cap.
+  // In the medium (review) list the payee is capped by row width so a long
+  // name truncates with "…" instead of running into its amount; other layouts
+  // keep the fixed character cap.
   const maxPayee = config.layout === "review" ? mediumPayeeBudget(config) : (config.payeeLen || 16);
   const payee = row.addText(clip(t.payee, maxPayee));
   payee.font = font(fontSize);
@@ -869,8 +946,8 @@ function budgetPeriodLabel() {
   return MONTHS[new Date().getMonth()].toUpperCase();
 }
 
-// A single centered line: flexible spacers on both sides keep the label centered,
-// so it takes the full width even in a mixed-size layout
+// A single centered line: flexible spacers on both sides keep the label
+// centered, so it takes the full width even in a mixed-size layout
 function addCenteredText(parent, text, style) {
   const { label } = addTextRow(parent, text, {
     font: style.font,
@@ -881,8 +958,12 @@ function addCenteredText(parent, text, style) {
   return label;
 }
 
-// One horizontal row holding a single styled text. Centered lines are framed by
-// flexible spacers; left-aligned lines hug the text with no trailing spacer
+/****************************************************
+             UI PRIMITIVES - shared text rows
+*****************************************************/
+
+// One horizontal row holding a single styled text. Centered lines are framed
+// by flexible spacers; left-aligned lines hug the text with no trailing spacer
 // (a trailing flex spacer inflates the row's implicit width and widens the
 // whole column). Returns { row, label } so callers can tweak the text or
 // append fixed spacers afterwards.
@@ -920,11 +1001,11 @@ function addCaption(parent, text, size, alignLeft) {
 // Bold monetary value; colored by sign unless colorOverride is given.
 // Centered unless alignLeft or alignRight is set. A minWidth (points) reserves
 // fixed room for the row so the column width stays stable across amounts. In
-// the medium layout every amount is left-padded to the same character count, so
-// the lines are equal length and, in a monospace font, end on the same right
-// edge: the values right-justify and the cents line up without estimating glyph
-// widths. The small layout right-aligns instead, which lines up the cents since
-// every amount shares a two-digit fraction.
+// the medium layout every amount is left-padded to the same character count,
+// so the lines are equal length and, in a monospace font, end on the same
+// right edge: the values right-justify and the cents line up without
+// estimating glyph widths. The small layout right-aligns instead, which lines
+// up the cents since every amount shares a two-digit fraction.
 function addAmount(parent, value, size, colorOverride, alignLeft, minWidth, alignRight) {
   let text = formatMoney(value);
   if (alignLeft && minWidth) {
@@ -946,12 +1027,9 @@ function addAmount(parent, value, size, colorOverride, alignLeft, minWidth, alig
 
 // extraLarge: Leftover amount plus Inflow / Outflow detail lines
 function addBreakdown(mainStack, data, detailFont) {
-  const rows = [
-    ["Inflow", Math.abs(data.inflow)],
-    ["Outflow", data.outflow]
-  ];
-  for (const [label, value] of rows) {
-    addDetailRow(mainStack, label, value, detailFont);
+  for (const metric of METRICS) {
+    if (metric.id === "leftover") continue;
+    addDetailRow(mainStack, metric.label, metric.value(data), detailFont);
   }
 }
 
