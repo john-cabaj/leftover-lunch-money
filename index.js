@@ -61,7 +61,7 @@ const USE_PAY_CYCLE = args.widgetParameter != null;
 const smallLayout = { layout: "stacked", caption: 11, inflowAmount: 20, leftoverAmount: 25 };
 const FAMILY_LAYOUTS = {
   small:      smallLayout,
-  medium:     { layout: "review", header: true, caption: 12, amount: 28, leftoverAmount: 34, detailFont: 11, payeeLen: 26, maxUnreviewed: 4, metricsWeight: 36 },
+  medium:     { layout: "review", header: true, caption: 12, amount: 28, leftoverAmount: 34, detailFont: 11, payeeLen: 26, maxUnreviewed: 4 },
   large:      { layout: "overview", header: true, caption: 14, amount: 30, detailFont: 12, payeeLen: 30, maxUnreviewed: 7 },
   extraLarge: { layout: "breakdown", header: true, caption: 15, amount: 46, detailFont: 11 },
   undefined:  smallLayout
@@ -613,14 +613,13 @@ function addReviewSplit(mainStack, data, config) {
 
   const left = row.addStack();
   left.layoutVertically();
-  left.layoutWeight = config.metricsWeight || 46;
   left.url = BUDGET_URL;
   addMetrics(left, data, config, config.amount, config.leftoverAmount || config.amount, true);
   left.addSpacer();
 
   const right = row.addStack();
   right.layoutVertically();
-  right.layoutWeight = 100 - (config.metricsWeight || 46);
+  right.layoutWeight = 1;
   right.url = UNREVIEWED_URL;
   addCaption(right, "Unreviewed", config.caption);
   addUnreviewedItems(right, data, config);
@@ -690,7 +689,7 @@ function addHeader(mainStack) {
   const titleRow = mainStack.addStack();
   titleRow.layoutHorizontally();
   titleRow.addSpacer();
-  const title = titleRow.addText("LUNCH MONEY v15");
+  const title = titleRow.addText("LUNCH MONEY v16");
   title.font = Font.boldSystemFont(12);
   title.textColor = brandGreen;
   title.centerAlignText();
