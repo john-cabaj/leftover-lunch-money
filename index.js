@@ -61,8 +61,8 @@ const USE_PAY_CYCLE = args.widgetParameter != null;
 const smallLayout = { layout: "stacked", caption: 11, inflowAmount: 20, leftoverAmount: 25 };
 const FAMILY_LAYOUTS = {
   small:      smallLayout,
-  medium:     { layout: "review", header: true, caption: 12, amount: 24, leftoverAmount: 26, detailFont: 11, payeeLen: 26, maxUnreviewed: 4, metricsWeight: 30 },
-  large:      { layout: "overview", header: true, caption: 14, amount: 30, detailFont: 12, payeeLen: 30, maxUnreviewed: 12 },
+  medium:     { layout: "review", header: true, caption: 12, amount: 24, leftoverAmount: 26, detailFont: 11, payeeLen: 26, metricsWeight: 30 },
+  large:      { layout: "overview", header: true, caption: 14, amount: 30, detailFont: 12, payeeLen: 30 },
   extraLarge: { layout: "breakdown", header: true, caption: 15, amount: 46, detailFont: 11 },
   undefined:  smallLayout
 };
@@ -637,9 +637,11 @@ function addMetrics(parent, data, config, amountSize, leftoverSize, alignLeft) {
   addAmount(parent, data.savings, leftoverSize, undefined, alignLeft);
 }
 
-// Transaction rows up to the family limit, or an inline empty/diagnostic notice
+// Every unreviewed transaction, or an inline empty/diagnostic notice.
+// The list stack is layout-bounded, so the widget simply clips rows that
+// don't fit rather than counting them up front.
 function addUnreviewedItems(parent, data, config) {
-  const items = (data.unreviewed || []).slice(0, config.maxUnreviewed || 7);
+  const items = data.unreviewed || [];
   if (items.length === 0) {
     addUnreviewedEmpty(parent, data.unreviewedDiag, config);
   } else {
@@ -690,7 +692,7 @@ function addHeader(mainStack) {
   const titleRow = mainStack.addStack();
   titleRow.layoutHorizontally();
   titleRow.addSpacer();
-  const title = titleRow.addText("LUNCH MONEY v18");
+  const title = titleRow.addText("LUNCH MONEY v19");
   title.font = Font.boldSystemFont(12);
   title.textColor = brandGreen;
   title.centerAlignText();
