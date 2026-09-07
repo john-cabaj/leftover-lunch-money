@@ -585,7 +585,7 @@ function addCompactTitle(mainStack) {
   const row = mainStack.addStack();
   row.layoutHorizontally();
   row.addSpacer();
-  const title = row.addText("LUNCH MONEY v25");
+  const title = row.addText("LUNCH MONEY v26");
   title.font = Font.boldSystemFont(12);
   title.textColor = brandGreen;
   title.centerAlignText();
@@ -633,6 +633,7 @@ function addReviewSplit(mainStack, data, config) {
 
   const left = row.addStack();
   left.layoutVertically();
+  left.layoutWeight = 27;
   left.url = BUDGET_URL;
   addMetrics(left, data, config, config.amount, config.leftoverAmount || config.amount, true);
   left.addSpacer();
@@ -640,7 +641,7 @@ function addReviewSplit(mainStack, data, config) {
 
   const right = row.addStack();
   right.layoutVertically();
-  right.layoutWeight = 1;
+  right.layoutWeight = 73;
   right.url = UNREVIEWED_URL;
   addCaption(right, "Unreviewed", config.caption, true);
   addUnreviewedItems(right, data, config);
@@ -743,7 +744,7 @@ function addHeader(mainStack) {
   const titleRow = mainStack.addStack();
   titleRow.layoutHorizontally();
   titleRow.addSpacer();
-  const title = titleRow.addText("LUNCH MONEY v25");
+  const title = titleRow.addText("LUNCH MONEY v26");
   title.font = Font.boldSystemFont(12);
   title.textColor = brandGreen;
   title.centerAlignText();
