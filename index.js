@@ -395,6 +395,14 @@ function formatMoney(value) {
   return (value < 0 ? "-" : "") + "$" + grouped + "." + dec;
 }
 
+// Widest leftover rendered, so the medium metrics column reserves stable room
+const LARGE_LEFTOVER_STRING = formatMoney(99999);
+
+// Menlo is monospace: advance width ≈ 0.6em, so glyph-count × 0.6 × size
+function textWidth(str, size) {
+  return String(str).length * 0.6 * size;
+}
+
 // YYYY-MM-DD for the API
 function formatDateString(date) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
@@ -586,7 +594,7 @@ function addCompactTitle(mainStack) {
   const row = mainStack.addStack();
   row.layoutHorizontally();
   row.addSpacer();
-  const title = row.addText("LUNCH MONEY v27");
+  const title = row.addText("LUNCH MONEY v28");
   title.font = Font.boldSystemFont(12);
   title.textColor = brandGreen;
   title.centerAlignText();
@@ -656,7 +664,8 @@ function addMetrics(parent, data, config, amountSize, leftoverSize, alignLeft) {
   addCaption(parent, "Outflow", config.caption, alignLeft);
   addAmount(parent, data.outflow, amountSize, regularColor, alignLeft);
   addCaption(parent, "Leftover", config.caption, alignLeft);
-  addAmount(parent, data.savings, leftoverSize, undefined, alignLeft);
+  addAmount(parent, data.savings, leftoverSize, undefined, alignLeft,
+           alignLeft ? textWidth(LARGE_LEFTOVER_STRING, leftoverSize) : undefined);
 }
 
 // Every unreviewed transaction that fits without clipping, or an inline
@@ -745,7 +754,7 @@ function addHeader(mainStack) {
   const titleRow = mainStack.addStack();
   titleRow.layoutHorizontally();
   titleRow.addSpacer();
-  const title = titleRow.addText("LUNCH MONEY v27");
+  const title = titleRow.addText("LUNCH MONEY v28");
   title.font = Font.boldSystemFont(12);
   title.textColor = brandGreen;
   title.centerAlignText();
@@ -784,8 +793,9 @@ function addCaption(mainStack, text, size, alignLeft) {
 }
 
 // Bold monetary value; colored by sign unless colorOverride is given.
-// Centered unless alignLeft is set.
-function addAmount(mainStack, value, size, colorOverride, alignLeft) {
+// Centered unless alignLeft is set. A minWidth (points) reserves fixed room
+// for the row so the column width stays stable across amounts.
+function addAmount(mainStack, value, size, colorOverride, alignLeft, minWidth) {
   const row = mainStack.addStack();
   row.layoutHorizontally();
   if (!alignLeft) row.addSpacer();
@@ -799,6 +809,11 @@ function addAmount(mainStack, value, size, colorOverride, alignLeft) {
   } else {
     amount.centerAlignText();
     row.addSpacer();
+  }
+  if (minWidth) {
+    const textWidth = String(formatMoney(value)).length * 0.6 * size;
+    const extra = minWidth - textWidth;
+    if (extra > 0) row.addSpacer(extra);
   }
 }
 
