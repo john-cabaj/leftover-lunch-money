@@ -158,6 +158,14 @@ const TITLE_SIZE = 12;
 const PERIOD_SIZE = 11;
 const HEADER_H = lineHeight(TITLE_SIZE) + STACK_SPACING + lineHeight(PERIOD_SIZE);
 
+// Total vertical space a layout's header occupies: the fixed HEADER_H plus any
+// per-layout headerPad pushed in above the title. The pad doesn't push the body
+// down (the trailing flexible spacer absorbs it), but the row budgets still
+// account for it so list rows never cross the widget's bottom edge.
+function headerHeight(config) {
+  return HEADER_H + (config.headerPad || 0);
+}
+
 // Inner content width for the medium widget: container width minus the 10pt
 // side padding. The widget build reads it while computing the payee budget
 // and the review split.
@@ -190,7 +198,7 @@ function smallAmountFont() {
 const smallLayout = { layout: "stacked", caption: SMALL_CAPTION, inflowAmount: smallAmountFont(), leftoverAmount: smallAmountFont() };
 const FAMILY_LAYOUTS = {
   small:      smallLayout,
-  medium:     { layout: "review", caption: 13, amount: 30, leftoverAmount: 30, detailFont: 11, payeeLen: 28 },
+  medium:     { layout: "review", caption: 13, amount: 30, leftoverAmount: 30, detailFont: 11, payeeLen: 28, headerPad: 4 },
   large:      { layout: "overview", caption: 14, amount: 30, detailFont: 12, payeeLen: 30 },
   extraLarge: { layout: "breakdown", caption: 15, amount: 46, detailFont: 11 },
   undefined:  smallLayout
@@ -711,7 +719,7 @@ function renderWidget(mainStack, data, config) {
 // Header on top, a fixed gap, a body section, and a trailing flexible spacer —
 // the shape shared by the review and overview layouts
 function withHeaderAndSpacer(mainStack, data, config, gap, body) {
-  addHeader(mainStack);
+  addHeader(mainStack, config);
   mainStack.addSpacer(gap);
   body(mainStack, data, config);
   mainStack.addSpacer();
@@ -719,7 +727,7 @@ function withHeaderAndSpacer(mainStack, data, config, gap, body) {
 
 // extraLarge: Leftover summary plus Inflow / Outflow detail lines; taps open Budget
 function addBreakdownLayout(mainStack, data, config) {
-  addHeader(mainStack);
+  addHeader(mainStack, config);
   mainStack.addSpacer(6);
   const budget = mainStack.addStack();
   budget.layoutVertically();
@@ -852,11 +860,11 @@ function listHeightBudget(config) {
   const height = WIDGET_HEIGHTS[config.layout];
   if (config.layout === "review") {
     // medium: list shares the row's fixed height with the metrics column
-    return height - PADDING_Y - HEADER_H - 4 - lineHeight(config.caption);
+    return height - PADDING_Y - headerHeight(config) - 4 - lineHeight(config.caption);
   }
   if (config.layout === "overview") {
     const metricRowH = lineHeight(config.caption) + STACK_SPACING + lineHeight(config.amount);
-    return height - PADDING_Y - HEADER_H - 6 - metricRowH - 10 - lineHeight(config.caption);
+    return height - PADDING_Y - headerHeight(config) - 6 - metricRowH - 10 - lineHeight(config.caption);
   }
   return 0;
 }
@@ -931,8 +939,11 @@ function clip(text, max) {
   return t.length > max ? t.slice(0, max - 1) + "…" : t;
 }
 
-// Title + budget period label rows used by medium and extraLarge layouts
-function addHeader(mainStack) {
+// Title + budget period label rows used by medium and extraLarge layouts. An
+// optional per-layout headerPad drops the block a few points lower; the trailing
+// flexible spacer in the caller keeps the body pinned in place.
+function addHeader(mainStack, config) {
+  if (config && config.headerPad) mainStack.addSpacer(config.headerPad);
   addBrandTitle(mainStack);
   addCenteredText(mainStack, budgetPeriodLabel(), {
     font: regularFont,
