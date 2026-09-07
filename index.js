@@ -61,7 +61,7 @@ const USE_PAY_CYCLE = args.widgetParameter != null;
 const smallLayout = { layout: "stacked", caption: 10, inflowAmount: 17, leftoverAmount: 19 };
 const FAMILY_LAYOUTS = {
   small:      smallLayout,
-  medium:     { layout: "review", header: true, caption: 13, amount: 26, leftoverAmount: 26, detailFont: 11, payeeLen: 28 },
+  medium:     { layout: "review", header: true, caption: 13, amount: 28, leftoverAmount: 28, detailFont: 11, payeeLen: 28 },
   large:      { layout: "overview", header: true, caption: 14, amount: 30, detailFont: 12, payeeLen: 30 },
   extraLarge: { layout: "breakdown", header: true, caption: 15, amount: 46, detailFont: 11 },
   undefined:  smallLayout
@@ -661,10 +661,7 @@ function addReviewSplit(mainStack, data, config) {
 // column, so the decimals share one right edge and the gap to the unreviewed
 // list is the same on all three rows, no matter what's in the list.
 function addMetrics(parent, data, config, amountSize, leftoverSize, alignLeft) {
-  // The column reserve from v1 (widest plausible figure, 180pt) is kept as-is
-  // so the unreviewed list stays exactly where it was; the amounts now sit
-  // flush against it with a fixed common margin.
-  const columnWidth = alignLeft ? textWidth(formatMoney(99999), 30) : undefined;
+  const columnWidth = metricColumnWidth(amountSize, leftoverSize, alignLeft);
   const metrics = [
     ["Inflow", Math.abs(data.inflow), amountSize, regularColor],
     ["Outflow", data.outflow, amountSize, regularColor],
@@ -674,6 +671,16 @@ function addMetrics(parent, data, config, amountSize, leftoverSize, alignLeft) {
     addCaption(parent, label, config.caption, alignLeft);
     addAmount(parent, value, size, color, alignLeft, columnWidth);
   }
+}
+
+// Fixed reserve for a left-aligned metrics column: room for the widest
+// plausible figure at the row's size, plus the 24pt gap that separates the
+// right-justified amounts from the unreviewed list. Keeping it a pure function
+// of the font sizes means the list position (and the margin on every row)
+// never shifts with the amounts or the list content.
+function metricColumnWidth(amountSize, leftoverSize, alignLeft) {
+  if (!alignLeft) return undefined;
+  return textWidth(formatMoney(99999), Math.max(amountSize, leftoverSize)) + 24;
 }
 
 // Every unreviewed transaction that fits without clipping, or an inline
@@ -735,7 +742,11 @@ function addTransactionRow(parent, t, config) {
   const row = parent.addStack();
   row.layoutHorizontally();
   const fontSize = config.detailFont || 9;
-  const payee = row.addText(clip(t.payee, config.payeeLen || 16));
+  // In the medium (review) list the payee is capped by row width so a long name
+  // truncates with "…" instead of running into its amount; other layouts keep
+  // the fixed character cap.
+  const maxPayee = config.layout === "review" ? mediumPayeeBudget(config) : (config.payeeLen || 16);
+  const payee = row.addText(clip(t.payee, maxPayee));
   payee.font = font(fontSize);
   payee.textColor = regularColor;
   payee.lineLimit = 1;
@@ -749,6 +760,21 @@ function addTransactionRow(parent, t, config) {
   amount.textColor = isInflow ? incomeGreen : expenseRed;
 
   parent.addSpacer(3);
+}
+
+// Inner content width for the medium widget on the taller (~170pt) variant:
+// 364pt family minus the 10pt side padding, used to budget payee truncation.
+const MEDIUM_INNER_WIDTH = 344;
+
+// Max payee characters in the medium (review) list so a name truncates with
+// "…" while always leaving room for a fixed gap and the widest signed amount
+// on the same line — the payee can then never reach its own amount.
+function mediumPayeeBudget(config) {
+  const fs = config.detailFont || 9;
+  const amountW = textWidth("+$999,999.99", fs);
+  const columns = metricColumnWidth(config.amount, config.leftoverAmount || config.amount, true);
+  const room = Math.max(0, MEDIUM_INNER_WIDTH - columns - 8 - amountW);
+  return Math.max(4, Math.floor(room / (0.6 * fs)));
 }
 
 // Truncate to max characters, hinting overflow with an ellipsis
