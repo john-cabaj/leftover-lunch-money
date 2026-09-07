@@ -586,7 +586,7 @@ function addCompactTitle(mainStack) {
   const row = mainStack.addStack();
   row.layoutHorizontally();
   row.addSpacer();
-  const title = row.addText("LUNCH MONEY v27");
+  const title = row.addText("LUNCH MONEY v26");
   title.font = Font.boldSystemFont(12);
   title.textColor = brandGreen;
   title.centerAlignText();
@@ -636,7 +636,7 @@ function addReviewSplit(mainStack, data, config) {
   left.layoutVertically();
   left.layoutWeight = 27;
   left.url = BUDGET_URL;
-  addMetrics(left, data, config, config.amount, config.leftoverAmount || config.amount, false, true);
+  addMetrics(left, data, config, config.amount, config.leftoverAmount || config.amount, true);
   left.addSpacer();
   left.addSpacer(10);
 
@@ -650,13 +650,13 @@ function addReviewSplit(mainStack, data, config) {
 }
 
 // Inflow / Outflow / Leftover rows, sharing one badge + amount style
-function addMetrics(parent, data, config, amountSize, leftoverSize, alignLeft, alignRight) {
-  addCaption(parent, "Inflow", config.caption, alignLeft, alignRight);
-  addAmount(parent, Math.abs(data.inflow), amountSize, regularColor, alignLeft, alignRight);
-  addCaption(parent, "Outflow", config.caption, alignLeft, alignRight);
-  addAmount(parent, data.outflow, amountSize, regularColor, alignLeft, alignRight);
-  addCaption(parent, "Leftover", config.caption, alignLeft, alignRight);
-  addAmount(parent, data.savings, leftoverSize, undefined, alignLeft, alignRight);
+function addMetrics(parent, data, config, amountSize, leftoverSize, alignLeft) {
+  addCaption(parent, "Inflow", config.caption, alignLeft);
+  addAmount(parent, Math.abs(data.inflow), amountSize, regularColor, alignLeft);
+  addCaption(parent, "Outflow", config.caption, alignLeft);
+  addAmount(parent, data.outflow, amountSize, regularColor, alignLeft);
+  addCaption(parent, "Leftover", config.caption, alignLeft);
+  addAmount(parent, data.savings, leftoverSize, undefined, alignLeft);
 }
 
 // Every unreviewed transaction that fits without clipping, or an inline
@@ -745,7 +745,7 @@ function addHeader(mainStack) {
   const titleRow = mainStack.addStack();
   titleRow.layoutHorizontally();
   titleRow.addSpacer();
-  const title = titleRow.addText("LUNCH MONEY v27");
+  const title = titleRow.addText("LUNCH MONEY v26");
   title.font = Font.boldSystemFont(12);
   title.textColor = brandGreen;
   title.centerAlignText();
@@ -767,43 +767,39 @@ function budgetPeriodLabel() {
   return MONTHS[new Date().getMonth()].toUpperCase();
 }
 
-// Yellow label (e.g. "Inflow", "Leftover"); centered, left-aligned, or right-aligned
-function addCaption(mainStack, text, size, alignLeft, alignRight) {
+// Yellow label (e.g. "Inflow", "Leftover"); centered unless alignLeft is set
+function addCaption(mainStack, text, size, alignLeft) {
   const row = mainStack.addStack();
   row.layoutHorizontally();
-  if (!alignLeft || alignRight) row.addSpacer(); // flexible spacer pins text right/center
+  if (!alignLeft) row.addSpacer();
   const caption = row.addText(text);
   caption.font = font(size);
   caption.textColor = brandYellow;
-  if (alignRight) {
-    caption.rightAlignText();
-  } else if (alignLeft) {
+  if (alignLeft) {
     caption.leftAlignText();
   } else {
     caption.centerAlignText();
   }
-  if (!alignRight) row.addSpacer();
+  row.addSpacer();
 }
 
 // Bold monetary value; colored by sign unless colorOverride is given.
-// Centered, left-aligned, or right-aligned by the same flags as addCaption.
-function addAmount(mainStack, value, size, colorOverride, alignLeft, alignRight) {
+// Centered unless alignLeft is set.
+function addAmount(mainStack, value, size, colorOverride, alignLeft) {
   const row = mainStack.addStack();
   row.layoutHorizontally();
-  if (!alignLeft || alignRight) row.addSpacer(); // flexible spacer pins text right/center
+  if (!alignLeft) row.addSpacer();
   const amount = row.addText(formatMoney(value));
   amount.font = boldFont(size);
   amount.lineLimit = 1;
   amount.minimumScaleFactor = 0.5;
   amount.textColor = colorOverride || (value < 0 ? lossRed : brandGreen);
-  if (alignRight) {
-    amount.rightAlignText();
-  } else if (alignLeft) {
+  if (alignLeft) {
     amount.leftAlignText();
   } else {
     amount.centerAlignText();
   }
-  if (!alignRight) row.addSpacer();
+  row.addSpacer();
 }
 
 // extraLarge: Leftover amount plus Inflow / Outflow detail lines
