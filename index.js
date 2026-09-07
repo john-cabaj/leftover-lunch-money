@@ -61,7 +61,7 @@ const USE_PAY_CYCLE = args.widgetParameter != null;
 const smallLayout = { layout: "stacked", caption: 11, inflowAmount: 20, leftoverAmount: 25 };
 const FAMILY_LAYOUTS = {
   small:      smallLayout,
-  medium:     { layout: "review", header: true, caption: 13, amount: 26, leftoverAmount: 30, detailFont: 11, payeeLen: 28 },
+  medium:     { layout: "review", header: true, caption: 13, amount: 20, leftoverAmount: 24, detailFont: 11, payeeLen: 28 },
   large:      { layout: "overview", header: true, caption: 14, amount: 30, detailFont: 12, payeeLen: 30 },
   extraLarge: { layout: "breakdown", header: true, caption: 15, amount: 46, detailFont: 11 },
   undefined:  smallLayout
@@ -613,7 +613,7 @@ function addOverview(mainStack, data, config) {
   addUnreviewedItems(list, data, config);
 }
 
-// Medium layout: metrics top-aligned on the left, unreviewed transactions on the right
+// Medium layout: metrics stacked on the left, unreviewed transactions on the right
 function addReviewSplit(mainStack, data, config) {
   const row = mainStack.addStack();
   row.layoutHorizontally();
@@ -621,9 +621,10 @@ function addReviewSplit(mainStack, data, config) {
   const left = row.addStack();
   left.layoutVertically();
   left.url = BUDGET_URL;
-  addMetrics(left, data, config, config.amount, config.leftoverAmount || config.amount, true);
+  addMetricLine(left, "Inflow", Math.abs(data.inflow), config.caption, config.amount, regularColor);
+  addMetricLine(left, "Outflow", data.outflow, config.caption, config.amount, regularColor);
+  addMetricLine(left, "Leftover", data.savings, config.caption, config.leftoverAmount || config.amount, undefined);
   left.addSpacer();
-  left.addSpacer(10);
 
   const right = row.addStack();
   right.layoutVertically();
@@ -632,6 +633,25 @@ function addReviewSplit(mainStack, data, config) {
   addCaption(right, "Unreviewed", config.caption, true);
   addUnreviewedItems(right, data, config);
   right.addSpacer();
+}
+
+// One labeled metric row: left-aligned label, right-aligned amount, on a
+// single line. Right-aligning the amounts makes every metric flush with the
+// list boundary so no dead band forms between the metrics and the list.
+function addMetricLine(parent, label, value, captionSize, amountSize, colorOverride) {
+  const row = parent.addStack();
+  row.layoutHorizontally();
+  const labelText = row.addText(label);
+  labelText.font = font(captionSize);
+  labelText.textColor = brandYellow;
+  labelText.leftAlignText();
+  row.addSpacer();
+  const amount = row.addText(formatMoney(value));
+  amount.font = boldFont(amountSize);
+  amount.lineLimit = 1;
+  amount.minimumScaleFactor = 0.5;
+  amount.textColor = colorOverride || (value < 0 ? lossRed : brandGreen);
+  amount.rightAlignText();
 }
 
 // Inflow / Outflow / Leftover rows, sharing one badge + amount style
@@ -730,7 +750,7 @@ function addHeader(mainStack) {
   const titleRow = mainStack.addStack();
   titleRow.layoutHorizontally();
   titleRow.addSpacer();
-  const title = titleRow.addText("LUNCH MONEY v22");
+  const title = titleRow.addText("LUNCH MONEY v24");
   title.font = Font.boldSystemFont(12);
   title.textColor = brandGreen;
   title.centerAlignText();
