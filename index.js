@@ -57,41 +57,31 @@ const MONTHS = ["January", "February", "March", "April", "May", "June", "July", 
 // Setting a widget parameter switches the header to "CURRENT PAY CYCLE"
 const USE_PAY_CYCLE = args.widgetParameter != null;
 
-// Per-widget-family styling. small and the in-app preview share a layout.
-const smallLayout = { layout: "stacked", caption: 10, inflowAmount: 17, leftoverAmount: 19 };
-const FAMILY_LAYOUTS = {
-  small:      smallLayout,
-  medium:     { layout: "review", header: true, caption: 13, amount: 28, leftoverAmount: 28, detailFont: 11, payeeLen: 28 },
-  large:      { layout: "overview", header: true, caption: 14, amount: 30, detailFont: 12, payeeLen: 30 },
-  extraLarge: { layout: "breakdown", header: true, caption: 15, amount: 46, detailFont: 11 },
-  undefined:  smallLayout
-};
-
 // Approximate line height for a given font size. Menlo's line box is tight
 // (≈1.15× the point size), so this deliberately under-reserves the height the
 // layout actually needs, letting the row budgets fit the last row.
 function lineHeight(size) { return Math.ceil(size * 1.15); }
 
-// Widget container sizes (pt) for the medium and large widgets by device screen
-// (portrait points). Read from Device.screenSize() before SETUP so the width and
-// row budgets scale to whatever iPhone this runs on; unknown sizes fall back to
-// the X-class (329x155) family. Values follow Apple's widget HIG.
+// Widget container sizes (pt) for the small, medium, and large widgets by device
+// screen (portrait points). Read from Device.screenSize() before SETUP so the
+// width and row budgets scale to whatever iPhone this runs on; unknown sizes
+// fall back to the X-class (329x155) family. Values follow Apple's widget HIG.
 function widgetSizes() {
   const h = Math.max(Device.screenSize().width, Device.screenSize().height);
   const SPEC = {
-    932: [364, 170, 382], // 14/15/16 Pro Max, 13 Pro Max
-    926: [364, 170, 382], // 428x926 Max phones
-    896: [360, 169, 379], // 11, XR, XS Max, 11 Pro Max
-    874: [338, 158, 354], // 16 Pro
-    852: [338, 158, 354], // 15 Pro, 15
-    844: [338, 158, 354], // 12/13/14 Pro, 12/13/14
-    812: [329, 155, 345], // X, XS, 11 Pro, 12/13 mini
-    780: [329, 155, 345], // 360x780 compact phones
-    736: [348, 157, 357], // 7/8 Plus
-    667: [321, 148, 324], // 7/8, SE 2nd/3rd gen
-    568: [292, 141, 311]  // SE 1st gen
-  }[h] || [329, 155, 345];
-  return { width: SPEC[0], medium: SPEC[1], large: SPEC[2] };
+    932: [364, 170, 170, 382], // 14/15/16 Pro Max, 13 Pro Max
+    926: [364, 170, 170, 382], // 428x926 Max phones
+    896: [360, 169, 169, 379], // 11, XR, XS Max, 11 Pro Max
+    874: [338, 158, 158, 354], // 16 Pro
+    852: [338, 158, 158, 354], // 15 Pro, 15
+    844: [338, 158, 158, 354], // 12/13/14 Pro, 12/13/14
+    812: [329, 155, 155, 345], // X, XS, 11 Pro, 12/13 mini
+    780: [329, 155, 155, 345], // 360x780 compact phones
+    736: [348, 159, 157, 357], // 7/8 Plus
+    667: [321, 148, 148, 324], // 7/8, SE 2nd/3rd gen
+    568: [292, 141, 141, 311]  // SE 1st gen
+  }[h] || [329, 155, 155, 345];
+  return { width: SPEC[0], small: SPEC[1], medium: SPEC[2], large: SPEC[3] };
 }
 
 const WIDGET_SIZE = widgetSizes();
@@ -123,6 +113,31 @@ const LIST_WEIGHT = 73;
 // reserves next to its payee. Declared above SETUP (formatMoney is hoisted).
 const MAX_MONEY = formatMoney(99999);
 const MAX_SIGNED_MONEY = "+$999,999.99";
+
+// Per-widget-family styling. small and the in-app preview share a layout, and
+// the amount font derives from the max displayable value rather than a fixed
+// point size: the largest size where MAX_MONEY ("$99,999.00") still fits the
+// inner width and the three caption+amount rows fit the small widget height.
+const SMALL_CAPTION = 10;
+function smallAmountFont() {
+  const innerWidth = WIDGET_SIZE.width - 20; // 10pt side padding each edge
+  const byWidth = Math.floor(innerWidth / (0.6 * MAX_MONEY.length));
+  // Height left for the three amount rows after padding, title, gaps, and the
+  // three captions; 2pt slack keeps the final row from clipping.
+  const rowBudget = WIDGET_SIZE.small - PADDING_Y - lineHeight(TITLE_SIZE)
+    - STACK_SPACING - 3 * lineHeight(SMALL_CAPTION) - 2;
+  const byHeight = Math.floor(rowBudget / (3 * 1.15));
+  return Math.min(byWidth, byHeight);
+}
+
+const smallLayout = { layout: "stacked", caption: SMALL_CAPTION, inflowAmount: smallAmountFont(), leftoverAmount: smallAmountFont() };
+const FAMILY_LAYOUTS = {
+  small:      smallLayout,
+  medium:     { layout: "review", header: true, caption: 13, amount: 28, leftoverAmount: 28, detailFont: 11, payeeLen: 28 },
+  large:      { layout: "overview", header: true, caption: 14, amount: 30, detailFont: 12, payeeLen: 30 },
+  extraLarge: { layout: "breakdown", header: true, caption: 15, amount: 46, detailFont: 11 },
+  undefined:  smallLayout
+};
 
 /****************************************************
              SETUP - runs every time the widget loads
