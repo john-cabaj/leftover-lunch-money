@@ -123,11 +123,12 @@ async function getWidget() {
 
   // Render the chosen family layout into a vertical stack; anything not
   // assigned a specific tap target falls through to the transactions view
+  const layoutConfig = FAMILY_LAYOUTS[widgetFamily] || FAMILY_LAYOUTS.undefined;
   const mainStack = widget.addStack();
   mainStack.layoutVertically();
   mainStack.spacing = 2;
-  widget.url = DEFAULT_URL;
-  renderWidget(mainStack, lunchMoneyData, FAMILY_LAYOUTS[widgetFamily] || FAMILY_LAYOUTS.undefined);
+  widget.url = layoutConfig.layout === "stacked" ? BUDGET_URL : DEFAULT_URL;
+  renderWidget(mainStack, lunchMoneyData, layoutConfig);
 
   return widget;
 };
