@@ -99,7 +99,12 @@ const WIDGET_SIZE = widgetSizes();
 const WIDGET_HEIGHTS = { review: WIDGET_SIZE.medium + 2, overview: WIDGET_SIZE.large };
 const PADDING_Y = 28; // setPadding(14, 10, 14, 10)
 const STACK_SPACING = 2; // mainStack.spacing
-const HEADER_H = lineHeight(12) + STACK_SPACING + lineHeight(11); // title + period
+// Sizes of the two header rows (LUNCH MONEY title and the period label below);
+// HEADER_H reserves exactly their height. The title renders with
+// Font.boldSystemFont(TITLE_SIZE), the period with regularFont (11pt).
+const TITLE_SIZE = 12;
+const PERIOD_SIZE = 11;
+const HEADER_H = lineHeight(TITLE_SIZE) + STACK_SPACING + lineHeight(PERIOD_SIZE);
 
 // Inner content width for the medium widget: container width minus the 10pt
 // side padding. Kept up here (before SETUP) because the widget build reads it
@@ -110,6 +115,12 @@ const MEDIUM_INNER_WIDTH = WIDGET_SIZE.width - 20;
 // unreviewed list gets the rest (27% / 73% of the inner width).
 const METRICS_WEIGHT = 27;
 const LIST_WEIGHT = 73;
+
+// Widest monetary strings the layout budgets around: the 10-char figure every
+// amount pads/right-justifies to, and the signed worst case a transaction row
+// reserves next to its payee. Declared above SETUP (formatMoney is hoisted).
+const MAX_MONEY = formatMoney(99999);
+const MAX_SIGNED_MONEY = "+$999,999.99";
 
 /****************************************************
              SETUP - runs every time the widget loads
@@ -165,7 +176,7 @@ async function getWidget() {
   renderWidget(mainStack, lunchMoneyData, layoutConfig);
 
   return widget;
-};
+}
 
 // "Leftover" caption plus the given error message, centered
 function addErrorState(widget, message) {
@@ -203,7 +214,7 @@ function getLinearGradient(color1, color2) {
   gradient.colors = [new Color(color1), new Color(color2)];
   gradient.locations = [0.0, 1.0];
   return gradient;
-};
+}
 
 /****************************************************
              API
@@ -528,10 +539,14 @@ function storageFolder() {
   return FileManager.local().documentsDirectory() + "/" + BASE_FILE;
 }
 
+// Cache and diagnostics paths inside the widget folder
+function cachePath() { return storageFolder() + "/" + CACHE_KEY; }
+function diagnosticsPath() { return storageFolder() + "/diagnostics.txt"; }
+
 // Reads the cached result JSON; TTL-gated unless allowStale is set (offline fallback)
 function readCache(allowStale) {
   const fm = FileManager.local();
-  const path = storageFolder() + "/" + CACHE_KEY;
+  const path = cachePath();
   try {
     const raw = fm.readString(path);
     if (raw && (allowStale || Date.now() - fm.modificationDate(path) <= CACHED_MS)) {
@@ -551,7 +566,7 @@ function writeDiagnostics(line) {
     const fm = FileManager.local();
     const folder = storageFolder();
     fm.createDirectory(folder, true);
-    const path = folder + "/diagnostics.txt";
+    const path = diagnosticsPath();
     const prev = fm.fileExists(path) ? fm.readString(path) : "";
     fm.writeString(path, prev + new Date().toISOString() + " " + line + "\n");
   } catch (e) {
@@ -564,7 +579,7 @@ function writeCache(data) {
   const fm = FileManager.local();
   const folder = storageFolder();
   fm.createDirectory(folder, true);
-  fm.writeString(folder + "/" + CACHE_KEY, JSON.stringify(data));
+  fm.writeString(cachePath(), JSON.stringify(data));
 }
 
 /****************************************************
@@ -579,21 +594,24 @@ function renderWidget(mainStack, data, config) {
       addStackedMetrics(mainStack, data, config);
       break;
     case "review":
-      addHeader(mainStack);
-      mainStack.addSpacer(6);
-      addReviewSplit(mainStack, data, config);
-      mainStack.addSpacer();
+      withHeaderAndSpacer(mainStack, data, config, 6, addReviewSplit);
       break;
     case "overview":
-      addHeader(mainStack);
-      mainStack.addSpacer(8);
-      addOverview(mainStack, data, config);
-      mainStack.addSpacer();
+      withHeaderAndSpacer(mainStack, data, config, 8, addOverview);
       break;
     default: // breakdown / extraLarge
       addBreakdownLayout(mainStack, data, config);
       break;
   }
+}
+
+// Header on top, a fixed gap, a body section, and a trailing flexible spacer —
+// the shape shared by the review and overview layouts
+function withHeaderAndSpacer(mainStack, data, config, gap, body) {
+  addHeader(mainStack);
+  mainStack.addSpacer(gap);
+  body(mainStack, data, config);
+  mainStack.addSpacer();
 }
 
 // extraLarge: Leftover summary plus Inflow / Outflow detail lines; taps open Budget
@@ -623,7 +641,7 @@ function addStackedMetrics(parent, data, config) {
 // Brand title row for the small stacked widget and the large headers
 function addBrandTitle(parent) {
   addCenteredText(parent, "LUNCH MONEY", {
-    font: Font.boldSystemFont(12),
+    font: Font.boldSystemFont(TITLE_SIZE),
     color: brandGreen
   });
 }
@@ -713,7 +731,7 @@ function addMetrics(parent, data, config, amountSize, leftoverSize, alignLeft) {
 // never shifts with the amounts or the list content.
 function metricColumnWidth(amountSize, leftoverSize, alignLeft) {
   if (!alignLeft) return undefined;
-  return textWidth(formatMoney(99999), Math.max(amountSize, leftoverSize)) + 24;
+  return textWidth(MAX_MONEY, Math.max(amountSize, leftoverSize)) + 24;
 }
 
 // Every unreviewed transaction that fits without clipping, or an inline
@@ -802,7 +820,7 @@ function addTransactionRow(parent, t, config) {
 // whole widget, so long names use the space the layout actually gives them.
 function mediumPayeeBudget(config) {
   const fs = config.detailFont || 9;
-  const amountW = textWidth("+$999,999.99", fs);
+  const amountW = textWidth(MAX_SIGNED_MONEY, fs);
   const listW = (MEDIUM_INNER_WIDTH * LIST_WEIGHT) / (METRICS_WEIGHT + LIST_WEIGHT);
   const room = Math.max(0, listW - 8 - amountW);
   return Math.max(4, Math.floor(room / (0.6 * fs)));
@@ -832,15 +850,12 @@ function budgetPeriodLabel() {
 // A single centered line: flexible spacers on both sides keep the label centered,
 // so it takes the full width even in a mixed-size layout
 function addCenteredText(parent, text, style) {
-  const row = parent.addStack();
-  row.layoutHorizontally();
-  row.addSpacer();
-  const label = row.addText(text);
-  label.font = style.font;
-  if (style.color != null) label.textColor = style.color;
-  label.centerAlignText();
+  const { label } = addTextRow(parent, text, {
+    font: style.font,
+    color: style.color,
+    alignLeft: false
+  });
   if (style.opacity != null) label.textOpacity = style.opacity;
-  row.addSpacer();
   return label;
 }
 
@@ -883,7 +898,7 @@ function addCaption(parent, text, size, alignLeft) {
 function addAmount(parent, value, size, colorOverride, alignLeft, minWidth) {
   let text = formatMoney(value);
   if (alignLeft && minWidth) {
-    text = text.padStart(formatMoney(99999).length);
+    text = text.padStart(MAX_MONEY.length);
   }
   const { row, label } = addTextRow(parent, text, {
     font: boldFont(size),
