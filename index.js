@@ -61,7 +61,7 @@ const USE_PAY_CYCLE = args.widgetParameter != null;
 const smallLayout = { layout: "stacked", caption: 10, inflowAmount: 17, leftoverAmount: 19 };
 const FAMILY_LAYOUTS = {
   small:      smallLayout,
-  medium:     { layout: "review", header: true, caption: 13, amount: 26, leftoverAmount: 30, detailFont: 11, payeeLen: 28 },
+  medium:     { layout: "review", header: true, caption: 13, amount: 26, leftoverAmount: 26, detailFont: 11, payeeLen: 28 },
   large:      { layout: "overview", header: true, caption: 14, amount: 30, detailFont: 12, payeeLen: 30 },
   extraLarge: { layout: "breakdown", header: true, caption: 15, amount: 46, detailFont: 11 },
   undefined:  smallLayout
@@ -657,18 +657,22 @@ function addReviewSplit(mainStack, data, config) {
 }
 
 // Inflow / Outflow / Leftover rows, sharing one badge + amount style.
-// The leftover line is taller and (when left-aligned) reserves room for the
-// largest plausible amount so the column width stays stable.
+// In the medium layout (alignLeft) every amount right-justifies inside the
+// column, so the decimals share one right edge and the gap to the unreviewed
+// list is the same on all three rows, no matter what's in the list.
 function addMetrics(parent, data, config, amountSize, leftoverSize, alignLeft) {
+  // The column reserve from v1 (widest plausible figure, 180pt) is kept as-is
+  // so the unreviewed list stays exactly where it was; the amounts now sit
+  // flush against it with a fixed common margin.
+  const columnWidth = alignLeft ? textWidth(formatMoney(99999), 30) : undefined;
   const metrics = [
-    ["Inflow", Math.abs(data.inflow), amountSize, regularColor, null],
-    ["Outflow", data.outflow, amountSize, regularColor, null],
-    ["Leftover", data.savings, leftoverSize, undefined,
-     alignLeft ? textWidth(formatMoney(99999), leftoverSize) : undefined]
+    ["Inflow", Math.abs(data.inflow), amountSize, regularColor],
+    ["Outflow", data.outflow, amountSize, regularColor],
+    ["Leftover", data.savings, leftoverSize, undefined]
   ];
-  for (const [label, value, size, color, minWidth] of metrics) {
+  for (const [label, value, size, color] of metrics) {
     addCaption(parent, label, config.caption, alignLeft);
-    addAmount(parent, value, size, color, alignLeft, minWidth);
+    addAmount(parent, value, size, color, alignLeft, columnWidth);
   }
 }
 
@@ -815,9 +819,15 @@ function addCaption(parent, text, size, alignLeft) {
 
 // Bold monetary value; colored by sign unless colorOverride is given.
 // Centered unless alignLeft is set. A minWidth (points) reserves fixed room
-// for the row so the column width stays stable across amounts.
+// for the row so the column width stays stable across amounts. In the medium
+// layout every amount is left-padded to the same character count, so the lines
+// are equal length and, in a monospace font, end on the same right edge: the
+// values right-justify and the cents line up without estimating glyph widths.
 function addAmount(parent, value, size, colorOverride, alignLeft, minWidth) {
-  const text = formatMoney(value);
+  let text = formatMoney(value);
+  if (alignLeft && minWidth) {
+    text = text.padStart(formatMoney(99999).length);
+  }
   const { row, label } = addTextRow(parent, text, {
     font: boldFont(size),
     color: colorOverride || (value < 0 ? lossRed : brandGreen),
