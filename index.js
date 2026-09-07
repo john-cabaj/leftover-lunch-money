@@ -586,7 +586,7 @@ function addCompactTitle(mainStack) {
   const row = mainStack.addStack();
   row.layoutHorizontally();
   row.addSpacer();
-  const title = row.addText("LUNCH MONEY v26");
+  const title = row.addText("LUNCH MONEY v27");
   title.font = Font.boldSystemFont(12);
   title.textColor = brandGreen;
   title.centerAlignText();
@@ -745,7 +745,7 @@ function addHeader(mainStack) {
   const titleRow = mainStack.addStack();
   titleRow.layoutHorizontally();
   titleRow.addSpacer();
-  const title = titleRow.addText("LUNCH MONEY v26");
+  const title = titleRow.addText("LUNCH MONEY v27");
   title.font = Font.boldSystemFont(12);
   title.textColor = brandGreen;
   title.centerAlignText();
@@ -779,8 +779,8 @@ function addCaption(mainStack, text, size, alignLeft) {
     caption.leftAlignText();
   } else {
     caption.centerAlignText();
+    row.addSpacer();
   }
-  row.addSpacer();
 }
 
 // Bold monetary value; colored by sign unless colorOverride is given.
@@ -798,8 +798,8 @@ function addAmount(mainStack, value, size, colorOverride, alignLeft) {
     amount.leftAlignText();
   } else {
     amount.centerAlignText();
+    row.addSpacer();
   }
-  row.addSpacer();
 }
 
 // extraLarge: Leftover amount plus Inflow / Outflow detail lines
