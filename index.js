@@ -201,7 +201,9 @@ function smallAmountFont() {
 const smallLayout = { layout: "stacked", caption: SMALL_CAPTION, inflowAmount: smallAmountFont(), leftoverAmount: smallAmountFont() };
 const FAMILY_LAYOUTS = {
   small:      smallLayout,
-  medium:     { layout: "review", caption: 13, amount: 30, leftoverAmount: 30, detailFont: 11, payeeLen: 28, headerPad: 4 },
+  // medium: no headerPad so the review list gains a 6th row on every device;
+  // the fixed 4pt push-in above the title is what the tighter pitch couldn't fit
+  medium:     { layout: "review", caption: 13, amount: 30, leftoverAmount: 30, detailFont: 11, payeeLen: 28, headerPad: 0 },
   large:      { layout: "overview", caption: 14, amount: 30, detailFont: 12, payeeLen: 30 },
   extraLarge: { layout: "breakdown", caption: 15, amount: 46, detailFont: 11 },
   undefined:  smallLayout
@@ -907,9 +909,9 @@ function listHeightBudget(config) {
   return 0;
 }
 
-// One transaction row: text line plus the trailing 3pt spacer between rows
+// One transaction row: text line plus the trailing 1pt spacer between rows
 function rowFitHeight(config) {
-  return lineHeight(config.detailFont || 9) + 3;
+  return lineHeight(config.detailFont || 9) + 1;
 }
 
 // How many rows fit: the budget divided by the row pitch. The trailing
@@ -958,7 +960,7 @@ function addTransactionRow(parent, t, config) {
   amount.lineLimit = 1;
   amount.textColor = isInflow ? incomeGreen : expenseRed;
 
-  parent.addSpacer(3);
+  parent.addSpacer(1);
 }
 
 // Max payee characters in the medium (review) list so a name truncates with
