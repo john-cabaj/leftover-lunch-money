@@ -152,6 +152,7 @@ const WIDGET_SIZE = widgetSizes();
 // clipped on the taller (~170pt) medium widgets.
 const WIDGET_HEIGHTS = { review: WIDGET_SIZE.medium + 2, overview: WIDGET_SIZE.large };
 const PADDING_Y = 28;      // setPadding(14, 10, 14, 10)
+const TOP_PAD = 14;        // default top inset; small drops to topPad below
 const STACK_SPACING = 2;   // mainStack.spacing
 
 // Sizes of the two header rows (LUNCH MONEY title and the period label below,
@@ -198,12 +199,12 @@ function smallAmountFont() {
   return Math.min(byWidth, byHeight);
 }
 
-const smallLayout = { layout: "stacked", caption: SMALL_CAPTION, inflowAmount: smallAmountFont(), leftoverAmount: smallAmountFont() };
+const smallLayout = { layout: "stacked", caption: SMALL_CAPTION, inflowAmount: smallAmountFont(), leftoverAmount: smallAmountFont(), topPad: 10 };
 const FAMILY_LAYOUTS = {
   small:      smallLayout,
-  // medium: no headerPad so the review list gains a 6th row on every device;
-  // the fixed 4pt push-in above the title is what the tighter pitch couldn't fit
-  medium:     { layout: "review", caption: 13, amount: 30, leftoverAmount: 30, detailFont: 11, payeeLen: 28, headerPad: 0 },
+  // medium: a 2pt push-in above the title; the review gap pulls back to 2pt to
+  // compensate, so the list keeps its 6th row on every device
+  medium:     { layout: "review", caption: 13, amount: 30, leftoverAmount: 30, detailFont: 11, payeeLen: 28, headerPad: 2 },
   large:      { layout: "overview", caption: 14, amount: 30, detailFont: 12, payeeLen: 30 },
   extraLarge: { layout: "breakdown", caption: 15, amount: 46, detailFont: 11 },
   undefined:  smallLayout
@@ -228,11 +229,11 @@ Script.complete();
 async function getWidget() {
   const widget = new ListWidget();
   widget.title = "Lunch Money";
-  widget.setPadding(14, 10, 14, 10);
-  widget.backgroundGradient = getLinearGradient(COLORS.bg1, COLORS.bg2);
 
   const widgetFamily = config.widgetFamily;
   const layoutConfig = FAMILY_LAYOUTS[widgetFamily] || FAMILY_LAYOUTS.undefined;
+  widget.setPadding(layoutConfig.topPad || TOP_PAD, 10, 14, 10);
+  widget.backgroundGradient = getLinearGradient(COLORS.bg1, COLORS.bg2);
 
   let lunchMoneyData = null;
   let errorMessage = null;
@@ -751,7 +752,7 @@ function renderWidget(mainStack, data, config) {
       addStackedMetrics(mainStack, data, config);
       break;
     case "review":
-      withHeaderAndSpacer(mainStack, data, config, 4, addReviewSplit);
+      withHeaderAndSpacer(mainStack, data, config, 2, addReviewSplit);
       break;
     case "overview":
       withHeaderAndSpacer(mainStack, data, config, 6, addOverview);
@@ -900,7 +901,7 @@ function listHeightBudget(config) {
   const height = WIDGET_HEIGHTS[config.layout];
   if (config.layout === "review") {
     // medium: list shares the row's fixed height with the metrics column
-    return height - PADDING_Y - headerHeight(config) - 4 - lineHeight(config.caption);
+    return height - PADDING_Y - headerHeight(config) - 2 - lineHeight(config.caption);
   }
   if (config.layout === "overview") {
     const metricRowH = lineHeight(config.caption) + STACK_SPACING + lineHeight(config.amount);
