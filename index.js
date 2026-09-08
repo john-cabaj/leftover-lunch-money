@@ -41,7 +41,6 @@ const LOSS_RED = '#E15554';
 // adjust and line up. White is the default text color.
 const FONT_NAME = "Menlo";
 const FONT_BOLD = "Menlo-Bold";
-const regularFont = new Font(FONT_NAME, 11);
 const smallFont = new Font(FONT_NAME, 9);
 const regularColor = Color.white();
 
@@ -124,26 +123,29 @@ const MONTHS = ["January", "February", "March", "April", "May", "June", "July", 
 // layout actually needs, letting the row budgets fit the last row.
 function lineHeight(size) { return Math.ceil(size * 1.15); }
 
-// Widget container sizes (pt) for the small, medium, and large widgets by
-// device screen (portrait points). Read from Device.screenSize() so the width
-// and row budgets scale to whatever iPhone this runs on; unknown sizes fall
-// back to the X-class (329x155) family. Values follow Apple's widget HIG. Each
-// row is [width, small, medium, large].
+// Widget container sizes (pt): [width, small, medium, large] for the widget
+// families by device screen (portrait points). Read from Device.screenSize() so
+// widths and row budgets scale to whatever iPhone this runs on; values follow
+// Apple's widget HIG. Phones whose heights resolve to the same sizes share one
+// array, and unknown heights fall back to the X-class (329x155) family.
 function widgetSizes() {
   const h = Math.max(Device.screenSize().width, Device.screenSize().height);
-  const SPEC = {
-    932: [364, 170, 170, 382], // 14/15/16 Pro Max, 13 Pro Max
-    926: [364, 170, 170, 382], // 428x926 Max phones
-    896: [360, 169, 169, 379], // 11, XR, XS Max, 11 Pro Max
-    874: [338, 158, 158, 354], // 16 Pro
-    852: [338, 158, 158, 354], // 15 Pro, 15
-    844: [338, 158, 158, 354], // 12/13/14 Pro, 12/13/14
-    812: [329, 155, 155, 345], // X, XS, 11 Pro, 12/13 mini
-    780: [329, 155, 155, 345], // 360x780 compact phones
-    736: [348, 159, 157, 357], // 7/8 Plus
-    667: [321, 148, 148, 324], // 7/8, SE 2nd/3rd gen
-    568: [292, 141, 141, 311]  // SE 1st gen
-  }[h] || [329, 155, 155, 345];
+  const MAX  = [364, 170, 170, 382]; // 14/15/16 Pro Max, 13 Pro Max (932 / 428x926)
+  const LG   = [360, 169, 169, 379]; // 11, XR, XS Max, 11 Pro Max (896)
+  const PRO  = [338, 158, 158, 354]; // 16 Pro, 15 Pro/15, 12/13/14 (Pro) (874/852/844)
+  const MODERN = [329, 155, 155, 345]; // X, XS, 11 Pro, 12/13 mini, 360x780 compact (812/780)
+  const PLUS = [348, 159, 157, 357]; // 7/8 Plus (736)
+  const SE   = [321, 148, 148, 324]; // 7/8, SE 2nd/3rd gen (667)
+  const SE1  = [292, 141, 141, 311]; // SE 1st gen (568)
+  const SPEC = ({
+    932: MAX, 926: MAX,
+    896: LG,
+    874: PRO, 852: PRO, 844: PRO,
+    812: MODERN, 780: MODERN,
+    736: PLUS,
+    667: SE,
+    568: SE1
+  })[h] || MODERN;
   return { width: SPEC[0], small: SPEC[1], medium: SPEC[2], large: SPEC[3] };
 }
 
@@ -155,9 +157,17 @@ const PADDING_Y = 28;      // setPadding(14, 10, 14, 10)
 const TOP_PAD = 14;        // default top inset; small drops to topPad below
 const STACK_SPACING = 2;   // mainStack.spacing
 
-// Sizes of the two header rows (LUNCH MONEY title and the period label below,
-// the period rendered with regularFont at 11pt); HEADER_H reserves exactly
-// their combined height. The title renders with Font.boldSystemFont(TITLE_SIZE).
+// Gaps the render inserts between the header and the body, and inside the
+// overview body. Shared by BOTH renderWidget/addOverview (where the spacer is
+// rendered) and listHeightBudget (which subtracts the same points to fit list
+// rows), so a gap tweak always lands in both places together.
+const REVIEW_GAP = 2;      // review: header → metrics/list split
+const OVERVIEW_GAP = 6;    // overview + breakdownLayout: header → body
+const LIST_BODY_GAP = 10;  // overview: metric row → "Unreviewed" caption
+
+// Sizes of the two header rows (LUNCH MONEY title and the period label beneath
+// it); HEADER_H reserves exactly their combined height. The title renders with
+// Font.boldSystemFont(TITLE_SIZE) and the period with font(PERIOD_SIZE).
 const TITLE_SIZE = 12;
 const PERIOD_SIZE = 11;
 const HEADER_H = lineHeight(TITLE_SIZE) + STACK_SPACING + lineHeight(PERIOD_SIZE);
@@ -199,12 +209,12 @@ function smallAmountFont() {
   return Math.min(byWidth, byHeight);
 }
 
-const smallLayout = { layout: "stacked", caption: SMALL_CAPTION, inflowAmount: smallAmountFont(), leftoverAmount: smallAmountFont(), topPad: 10 };
+const smallLayout = { layout: "stacked", caption: SMALL_CAPTION, amount: smallAmountFont(), topPad: 10 };
 const FAMILY_LAYOUTS = {
   small:      smallLayout,
-  // medium: a 2pt push-in above the title; the review gap pulls back to 2pt to
-  // compensate, so the list keeps its 6th row on every device
-  medium:     { layout: "review", caption: 13, amount: 30, leftoverAmount: 30, detailFont: 11, payeeLen: 28, headerPad: 2 },
+  // medium: a 2pt push-in above the title; the review gap pulls back to REVIEW_GAP
+  // to compensate, so the list keeps its 6th row on every device
+  medium:     { layout: "review", caption: 13, amount: 30, detailFont: 11, payeeLen: 28, headerPad: 2 },
   large:      { layout: "overview", caption: 14, amount: 30, detailFont: 12, payeeLen: 30 },
   extraLarge: { layout: "breakdown", caption: 15, amount: 46, detailFont: 11 },
   undefined:  smallLayout
@@ -339,9 +349,7 @@ async function lunchMoneyLeftoverInfo() {
     const settings = await sendLunchMoneyRequest(`${BASE_URL}/budgets/settings`);
     // Prefer the configured budget period; fall back to the calendar month.
     // "previous" shows the prior period instead of the current one
-    const range = SHOW_PREVIOUS_PERIOD
-      ? getPreviousBudgetPeriod(settings) || getPreviousCalendarMonthRange()
-      : getCurrentBudgetPeriod(settings) || getCalendarMonthRange();
+    const range = getPeriodRange(settings, SHOW_PREVIOUS_PERIOD);
     const params = { ...range, include_totals: true, include_rollover_pool: true };
     const [summary, categories, unreviewed] = await Promise.all([
       sendLunchMoneyRequest(`${BASE_URL}/summary`, params),
@@ -400,13 +408,17 @@ function sendLunchMoneyRequest(url, params = {}) {
     'Authorization': LM_ACCESS_TOKEN.includes("Bearer") ? LM_ACCESS_TOKEN : `Bearer ${LM_ACCESS_TOKEN}`,
     'Content-Type': 'application/json'
   };
-  const query = Object.keys(params).length > 0
-    ? '?' + Object.entries(params).map(([key, value]) => `${key}=${value}`).join('&')
-    : '';
-  const request = new Request(url + query);
+  const request = new Request(url + buildQueryString(params));
   request.headers = headers;
   request.method = 'GET';
   return request.loadJSON();
+}
+
+// "?key=value&..." query suffix, or "" when there are no params
+function buildQueryString(params) {
+  const entries = Object.entries(params || {});
+  if (entries.length === 0) return "";
+  return "?" + entries.map(([key, value]) => `${key}=${value}`).join("&");
 }
 
 /****************************************************
@@ -646,22 +658,20 @@ function getPreviousBudgetPeriod(settings) {
   return getBudgetPeriodForDate(settings, prevEndTarget);
 }
 
-// Fallback range when the account has no custom budget period
-function getCalendarMonthRange() {
-  const now = new Date();
-  return {
-    start_date: formatDateString(new Date(now.getFullYear(), now.getMonth(), 1)),
-    end_date: formatDateString(new Date(now.getFullYear(), now.getMonth() + 1, 0))
-  };
+// The range the widget shows for the requested period: the account's configured
+// budget period, or a calendar-month fallback when none is configured
+function getPeriodRange(settings, previous) {
+  const custom = previous ? getPreviousBudgetPeriod(settings) : getCurrentBudgetPeriod(settings);
+  return custom || getCalendarMonthRange(previous ? -1 : 0);
 }
 
-// Fallback range for the prior calendar month when the account has no custom
-// budget period
-function getPreviousCalendarMonthRange() {
+// Fallback range when the account has no custom budget period. The offset
+// shifts the month: 0 = the current calendar month, -1 = the previous one.
+function getCalendarMonthRange(monthOffset) {
   const now = new Date();
   return {
-    start_date: formatDateString(new Date(now.getFullYear(), now.getMonth() - 1, 1)),
-    end_date: formatDateString(new Date(now.getFullYear(), now.getMonth(), 0))
+    start_date: formatDateString(new Date(now.getFullYear(), now.getMonth() + monthOffset, 1)),
+    end_date: formatDateString(new Date(now.getFullYear(), now.getMonth() + 1 + monthOffset, 0))
   };
 }
 
@@ -752,10 +762,10 @@ function renderWidget(mainStack, data, config) {
       addStackedMetrics(mainStack, data, config);
       break;
     case "review":
-      withHeaderAndSpacer(mainStack, data, config, 2, addReviewSplit);
+      withHeaderAndSpacer(mainStack, data, config, REVIEW_GAP, addReviewSplit);
       break;
     case "overview":
-      withHeaderAndSpacer(mainStack, data, config, 6, addOverview);
+      withHeaderAndSpacer(mainStack, data, config, OVERVIEW_GAP, addOverview);
       break;
     default: // breakdown / extraLarge
       addBreakdownLayout(mainStack, data, config);
@@ -775,12 +785,12 @@ function withHeaderAndSpacer(mainStack, data, config, gap, body) {
 // extraLarge: Leftover summary plus Inflow / Outflow detail lines
 function addBreakdownLayout(mainStack, data, config) {
   addHeader(mainStack, data, config);
-  mainStack.addSpacer(6);
+  mainStack.addSpacer(OVERVIEW_GAP);
   const budget = mainStack.addStack();
   budget.layoutVertically();
   addCaption(budget, "Leftover", config.caption);
-  addAmount(budget, data.savings, config.amount);
-  budget.addSpacer(10);
+  addAmount(budget, data.savings, { size: config.amount });
+  budget.addSpacer(LIST_BODY_GAP);
   addBreakdown(budget, data, config.detailFont);
   mainStack.addSpacer();
 }
@@ -793,7 +803,7 @@ function addStackedMetrics(parent, data, config) {
   stack.layoutVertically();
   stack.layoutWeight = 1;
   stack.topAlignContent();
-  addMetrics(stack, data, config, config.inflowAmount, config.leftoverAmount, false, true, true);
+  addMetrics(stack, data, config, { amountSize: config.amount, alignRight: true, captionLeft: true });
 }
 
 // Brand title row for the small stacked widget and the large headers
@@ -822,14 +832,14 @@ function addMetricColumn(parentRow, metric, data, config) {
   col.layoutWeight = 1;
   col.spacing = 2;
   addCaption(col, metric.label, config.caption);
-  // Leftover colors by sign (no override), other metrics stay white
-  addAmount(col, metric.value(data), config.amount, metric.color);
+  // Leftover colors by sign (no color set), other metrics stay white
+  addAmount(col, metric.value(data), { size: config.amount, color: metric.color });
 }
 
 // Large layout: metric columns across the width plus the unreviewed list below
 function addOverview(mainStack, data, config) {
   addMetricRow(mainStack, data, config);
-  mainStack.addSpacer(10);
+  mainStack.addSpacer(LIST_BODY_GAP);
   addCaption(mainStack, "Unreviewed", config.caption);
   const list = mainStack.addStack();
   list.layoutVertically();
@@ -845,9 +855,9 @@ function addReviewSplit(mainStack, data, config) {
   const left = row.addStack();
   left.layoutVertically();
   left.layoutWeight = METRICS_WEIGHT;
-  addMetrics(left, data, config, config.amount, config.leftoverAmount || config.amount, true);
+  addMetrics(left, data, config, { amountSize: config.amount, alignLeft: true });
   left.addSpacer();
-  left.addSpacer(10);
+  left.addSpacer(LIST_BODY_GAP);
 
   const right = row.addStack();
   right.layoutVertically();
@@ -858,28 +868,34 @@ function addReviewSplit(mainStack, data, config) {
 }
 
 // Inflow / Outflow / Leftover rows, sharing one badge + amount style.
-// In the medium layout (alignLeft) every amount right-justifies inside the
+// The medium layout (alignLeft) right-justifies amounts inside a reserved
 // column, so the decimals share one right edge and the gap to the unreviewed
-// list is the same on all three rows, no matter what's in the list. The small
-// layout right-justifies its amounts too but (captionLeft) left-justifies the
-// labels rather than centering them.
-function addMetrics(parent, data, config, amountSize, leftoverSize, alignLeft, alignRight, captionLeft) {
-  const columnWidth = metricColumnWidth(amountSize, leftoverSize, alignLeft);
+// list is the same on all three rows; the small layout (alignRight) right-aligns
+// too but with captionLeft left-justifying the labels rather than centering.
+// amountSize is a single size shared by all three rows.
+function addMetrics(parent, data, config, opts) {
+  const columnWidth = metricColumnWidth(opts.amountSize, opts.alignLeft);
   for (const metric of METRICS) {
-    const size = metric.id === "leftover" ? leftoverSize : amountSize;
-    addCaption(parent, metric.label, config.caption, captionLeft !== undefined ? captionLeft : alignLeft);
-    addAmount(parent, metric.value(data), size, metric.color, alignLeft, columnWidth, alignRight);
+    const alignCaption = opts.captionLeft !== undefined ? opts.captionLeft : opts.alignLeft;
+    addCaption(parent, metric.label, config.caption, alignCaption);
+    addAmount(parent, metric.value(data), {
+      size: opts.amountSize,
+      color: metric.color,
+      alignLeft: opts.alignLeft,
+      minWidth: columnWidth,
+      alignRight: opts.alignRight
+    });
   }
 }
 
 // Fixed reserve for a left-aligned metrics column: room for the widest
 // plausible figure at the row's size, plus the 24pt gap that separates the
 // right-justified amounts from the unreviewed list. Keeping it a pure function
-// of the font sizes means the list position (and the margin on every row)
+// of the font size means the list position (and the margin on every row)
 // never shifts with the amounts or the list content.
-function metricColumnWidth(amountSize, leftoverSize, alignLeft) {
+function metricColumnWidth(size, alignLeft) {
   if (!alignLeft) return undefined;
-  return textWidth(MAX_MONEY, Math.max(amountSize, leftoverSize)) + 24;
+  return textWidth(MAX_MONEY, size) + 24;
 }
 
 // Every unreviewed transaction that fits without clipping, or an inline notice
@@ -901,11 +917,11 @@ function listHeightBudget(config) {
   const height = WIDGET_HEIGHTS[config.layout];
   if (config.layout === "review") {
     // medium: list shares the row's fixed height with the metrics column
-    return height - PADDING_Y - headerHeight(config) - 2 - lineHeight(config.caption);
+    return height - PADDING_Y - headerHeight(config) - REVIEW_GAP - lineHeight(config.caption);
   }
   if (config.layout === "overview") {
     const metricRowH = lineHeight(config.caption) + STACK_SPACING + lineHeight(config.amount);
-    return height - PADDING_Y - headerHeight(config) - 6 - metricRowH - 10 - lineHeight(config.caption);
+    return height - PADDING_Y - headerHeight(config) - OVERVIEW_GAP - metricRowH - LIST_BODY_GAP - lineHeight(config.caption);
   }
   return 0;
 }
@@ -983,14 +999,14 @@ function clip(text, max) {
   return t.length > max ? t.slice(0, max - 1) + "…" : t;
 }
 
-// Title + budget period label rows used by medium and extraLarge layouts. An
+// Title + budget period label rows, used by every layout that has a header. An
 // optional per-layout headerPad drops the block a few points lower; the trailing
 // flexible spacer in the caller keeps the body pinned in place.
 function addHeader(mainStack, data, config) {
   if (config && config.headerPad) mainStack.addSpacer(config.headerPad);
   addBrandTitle(mainStack);
   addCenteredText(mainStack, budgetPeriodLabel(data), {
-    font: regularFont,
+    font: font(PERIOD_SIZE),
     color: regularColor
   });
 }
@@ -1051,7 +1067,7 @@ function addCaption(parent, text, size, alignLeft) {
   });
 }
 
-// Bold monetary value; colored by sign unless colorOverride is given.
+// Bold monetary value; colored by sign unless a color override is given.
 // Centered unless alignLeft or alignRight is set. A minWidth (points) reserves
 // fixed room for the row so the column width stays stable across amounts. In
 // the medium layout every amount is left-padded to the same character count,
@@ -1059,21 +1075,21 @@ function addCaption(parent, text, size, alignLeft) {
 // right edge: the values right-justify and the cents line up without
 // estimating glyph widths. The small layout right-aligns instead, which lines
 // up the cents since every amount shares a two-digit fraction.
-function addAmount(parent, value, size, colorOverride, alignLeft, minWidth, alignRight) {
+function addAmount(parent, value, opts = {}) {
   let text = formatMoney(value);
-  if (alignLeft && minWidth) {
+  if (opts.alignLeft && opts.minWidth) {
     text = text.padStart(MAX_MONEY.length);
   }
   const { row, label } = addTextRow(parent, text, {
-    font: boldFont(size),
-    color: colorOverride || (value < 0 ? lossRed : brandGreen),
-    alignLeft,
-    alignRight
+    font: boldFont(opts.size),
+    color: opts.color || (value < 0 ? lossRed : brandGreen),
+    alignLeft: opts.alignLeft,
+    alignRight: opts.alignRight
   });
   label.lineLimit = 1;
   label.minimumScaleFactor = 0.5;
-  if (minWidth) {
-    const extra = minWidth - textWidth(text, size);
+  if (opts.minWidth) {
+    const extra = opts.minWidth - textWidth(text, opts.size);
     if (extra > 0) row.addSpacer(extra);
   }
 }
