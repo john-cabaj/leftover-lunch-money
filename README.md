@@ -1,32 +1,43 @@
-Disclaimer: based on the great widget from @aryascripts.
+<img width="309" height="90" alt="powered-by-lunch-money-badge" src="https://github.com/user-attachments/assets/eff31e9e-8e34-4cc0-86b1-1cd9cd230dcf" />
+
+
+Disclaimer: based on the great widget from @aryascripts, subsequently forked from @berndsalewski as well.
 
 # Lunch Money Widget
-An iOS Widget for LunchMoney Status updates, a quick glance that you can have on your phone or iPad.
+<img width="806" height="374" alt="IMG_0096" src="https://github.com/user-attachments/assets/88213b0d-c2d9-4e60-b608-69e432cdc5a3" />
 
-![lunchmoney_monthly copy](https://github.com/user-attachments/assets/cd160cc1-a05f-4b8c-8b32-bc9488fa93b6)
+An iOS Widget for Leftover Lunch Money status, along with a short list of unreviewed transactions.
+
+One of my favorite features from a previous budgeting app was the ability to get a true sense of what money I had left to spend or save by the end of the month. Lunch Money makes this easy to calculate, and even better, gives us the tools to pull the data from the [Lunch Money API](https://lunchmoney.dev/introduction). This data is key for how I budget, so I whipped something up to get me the figure I was after.
+
+I also thought it would be helpful to see a list of unreviewed transactions, as those are generally the newest ones coming in. This information plus the Leftover tracker helps me keep on top of my budget in close to real-time. An additional helpful feature is that the widget can show the previous period or the current period - so I've set up a iOS Widget stack of one widget showing the previous month, and one showing the current month.
+
+Tapping the widget will open Lunch Money at the Transactions page.
 
 ## How to Use
-Currently, I am working on adding this script to the `Scriptable`'s Library. For now, you would need to copy the script and place it into the Scriptable's UI.
 
 1. Download [Scriptable](https://scriptable.app)
 2. Add new script
-3. Copy and paste the contets of [index.js](https://github.com/amanb014/lunch-money-widget/blob/main/index.js) and save
+3. Copy and paste the contents of [index.js](https://raw.githubusercontent.com/john-cabaj/leftover-lunch-money/refs/tags/v1/index.js) and save
 4. Run the script, this will pop up an alert box
-5. Paste your [API key from LunchMoney](https://my.lunchmoney.app/developers)
-6. Choose where you want to save the key (Device or iCloud)
+5. Paste your [API key from Lunch Money](https://my.lunchmoney.app/developers)
+6. The API key will be stored in Scriptable's on-device Keychain, and shouldn't need to be entered again
 7. Add a new widget to the home screen
 8. Select a widget size, all sizes are supported
-9. Select LunchMoneyWidget from the list
-10. Enjoy!
+9. Tap and hold the new widget, select "Edit Widget"
+10. Select Leftover Lunch Money from the list and select options as you see fit ("previous" = previous period, "current" or otherwise = current period):
+    
+   <img width="400" height="400" alt="options" src="https://github.com/user-attachments/assets/2fca5093-1e4f-48e8-83f6-83ab746a94f6" />
+  
+11. Once options are set, tap on the home screen (not the widget options) to save the changes
+12. Enjoy!
 
-Note: the information is cached in iCloud for 2 hours.
+## Other images
+### Large
+<img width="539" height="539" alt="IMG_0099" src="https://github.com/user-attachments/assets/1754c7a4-34a2-4517-be4d-ce0010e75abd" />
 
-__Optional:__ Instead of having the total values calculated for the current calendar month its possible to define a monthly (salary) payment which will be used as the start of a cycle. Useful if you get a salary at the end of a month, like me and the widget would show zero income for the most part of the month. You need to put a string in the `notes` field of those transactions, like *"salary"*, for example and then use that same string as a parameter in the widget settings. Totals will be calculated starting with that transaction then. 
+### Small
+<img width="253" height="253" alt="IMG_0098" src="https://github.com/user-attachments/assets/09b29b03-8d4a-4045-a093-5cdc4e891689" />
 
-![lunchmoney_parameter](https://github.com/user-attachments/assets/0e739f6f-bc29-4815-9f25-00d2b43e94ad)
-
- 
-
-### How to Use (Video)
-[How to Video](https://user-images.githubusercontent.com/3420290/121816934-79eba800-cc4c-11eb-8d0f-fdbeab00ca3e.MOV)
-
+### Medium
+<img width="537" height="249" alt="IMG_0096" src="https://github.com/user-attachments/assets/00a5b9ab-4013-4764-9212-282599ea3442" />
