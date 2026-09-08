@@ -2,9 +2,10 @@
  *                                                                             *
  *   LUNCH MONEY WIDGET — a Scriptable home-screen widget.                    *
  *                                                                             *
- *   Pulls the current budget period's totals and unreviewed transactions      *
- *   from the Lunch Money API, computes the period leftover, and renders it    *
- *   as a family-specific layout (small / medium / large / extraLarge).        *
+ *   Pulls the current budget period’s totals and unreviewed transactions      *
+ *   or, with the “previous” widget parameter, the prior period — from the     *
+ *   Lunch Money API, computes the period leftover, and renders it as a        *
+ *   family-specific layout (small / medium / large / extraLarge).             *
  *                                                                             *
  *   Layout rules of the road:                                                 *
  *     - Every size/measurement used to lay anything out is a named constant   *
@@ -94,12 +95,20 @@ const DEFAULT_URL = "lunchmoney://transactions";
 // --------------------------------------------------------------------------
 // Local storage
 // --------------------------------------------------------------------------
+// Scriptable widget parameter selects which budget period to show: "previous"
+// displays the period before the current one, anything else (or nothing)
+// defaults to the current period. Case-insensitive, whitespace trimmed.
+const WIDGET_PARAMETER = String(args.widgetParameter || "").trim().toLowerCase();
+const SHOW_PREVIOUS_PERIOD = WIDGET_PARAMETER === "previous";
+
 // BASE_FILE: folder (under Scriptable's Documents dir) for cache + diagnostics;
 // API_KEY: the Keychain entry holding the API token;
-// CACHE_KEY + CACHED_MS: cache file name and how long a fresh copy stays usable
+// CACHE_KEY + CACHED_MS: cache file name and how long a fresh copy stays usable.
+// The cache is split by period so a "previous" request never serves the current
+// period's cached data (or vice versa).
 const BASE_FILE = 'LunchMoneyWidget';
 const API_KEY = "lunchMoneyApiKey";
-const CACHE_KEY = "lunchMoneyCache";
+const CACHE_KEY = SHOW_PREVIOUS_PERIOD ? "lunchMoneyCache_previous" : "lunchMoneyCache";
 const CACHED_MS = 600000; // 10 minutes
 
 // v2 renamed "uncleared" to "unreviewed"; match either so accounts mid-migration work
@@ -107,15 +116,6 @@ const UNREVIEWED_STATUSES = ["unreviewed", "uncleared"];
 
 // Month names for the header label
 const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
-
-// Scriptable widget parameter selects which budget period to show: "previous"
-// displays the period before the current one, anything else (or nothing)
-// defaults to the current period. Case-insensitive, whitespace trimmed.
-const WIDGET_PARAMETER = String(args.widgetParameter || "").trim().toLowerCase();
-const SHOW_PREVIOUS_PERIOD = WIDGET_PARAMETER === "previous";
-// Setting a widget parameter switches the header from the month to a pay cycle
-// label
-const USE_PAY_CYCLE = args.widgetParameter != null;
 
 // --------------------------------------------------------------------------
 // Geometry
@@ -348,6 +348,7 @@ async function lunchMoneyLeftoverInfo() {
     ]);
     return {
       ...computeLeftover(summary, categories),
+      periodLabel: periodLabelFor(settings, range),
       unreviewed: unreviewed.rows,
       unreviewedDiag: unreviewed.diag
     };
@@ -670,6 +671,23 @@ function getPreviousCalendarMonthRange() {
   };
 }
 
+// Header label for the displayed period: the actual month name(s) when periods
+// are calendar months, otherwise a generic pay-period label that says which
+// period is shown
+function periodLabelFor(settings, range) {
+  const monthBased = ((settings && settings.budget_period_granularity) || "month") === "month";
+  if (!monthBased) {
+    return SHOW_PREVIOUS_PERIOD ? "PREVIOUS PAY PERIOD" : "CURRENT PAY PERIOD";
+  }
+  const start = parseIsoDate(range.start_date);
+  const end = parseIsoDate(range.end_date);
+  const startMonth = MONTHS[start.getMonth()].toUpperCase();
+  if (start.getFullYear() === end.getFullYear() && start.getMonth() === end.getMonth()) {
+    return startMonth;
+  }
+  return startMonth + "\u2013" + MONTHS[end.getMonth()].toUpperCase();
+}
+
 /****************************************************
              STORAGE
 *****************************************************/
@@ -754,7 +772,7 @@ function renderWidget(mainStack, data, config) {
 // Header on top, a fixed gap, a body section, and a trailing flexible spacer —
 // the shape shared by the review and overview layouts
 function withHeaderAndSpacer(mainStack, data, config, gap, body) {
-  addHeader(mainStack, config);
+  addHeader(mainStack, data, config);
   mainStack.addSpacer(gap);
   body(mainStack, data, config);
   mainStack.addSpacer();
@@ -762,7 +780,7 @@ function withHeaderAndSpacer(mainStack, data, config, gap, body) {
 
 // extraLarge: Leftover summary plus Inflow / Outflow detail lines; taps open Budget
 function addBreakdownLayout(mainStack, data, config) {
-  addHeader(mainStack, config);
+  addHeader(mainStack, data, config);
   mainStack.addSpacer(6);
   const budget = mainStack.addStack();
   budget.layoutVertically();
@@ -977,21 +995,18 @@ function clip(text, max) {
 // Title + budget period label rows used by medium and extraLarge layouts. An
 // optional per-layout headerPad drops the block a few points lower; the trailing
 // flexible spacer in the caller keeps the body pinned in place.
-function addHeader(mainStack, config) {
+function addHeader(mainStack, data, config) {
   if (config && config.headerPad) mainStack.addSpacer(config.headerPad);
   addBrandTitle(mainStack);
-  addCenteredText(mainStack, budgetPeriodLabel(), {
+  addCenteredText(mainStack, budgetPeriodLabel(data), {
     font: regularFont,
     color: regularColor
   });
 }
 
-// Text shown under the title: pay cycle labels when a parameter set the period,
-// otherwise the current month name
-function budgetPeriodLabel() {
-  if (SHOW_PREVIOUS_PERIOD) return "PREVIOUS PAY CYCLE";
-  if (USE_PAY_CYCLE) return "CURRENT PAY CYCLE";
-  return MONTHS[new Date().getMonth()].toUpperCase();
+// Text shown under the title: the displayed period's label (see periodLabelFor)
+function budgetPeriodLabel(data) {
+  return (data && data.periodLabel) || MONTHS[new Date().getMonth()].toUpperCase();
 }
 
 // A single centered line: flexible spacers on both sides keep the label
