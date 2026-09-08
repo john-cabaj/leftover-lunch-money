@@ -108,8 +108,13 @@ const UNREVIEWED_STATUSES = ["unreviewed", "uncleared"];
 // Month names for the header label
 const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 
-// Setting a widget parameter switches the header from the month to
-// "CURRENT PAY CYCLE"
+// Scriptable widget parameter selects which budget period to show: "previous"
+// displays the period before the current one, anything else (or nothing)
+// defaults to the current period. Case-insensitive, whitespace trimmed.
+const WIDGET_PARAMETER = String(args.widgetParameter || "").trim().toLowerCase();
+const SHOW_PREVIOUS_PERIOD = WIDGET_PARAMETER === "previous";
+// Setting a widget parameter switches the header from the month to a pay cycle
+// label
 const USE_PAY_CYCLE = args.widgetParameter != null;
 
 // --------------------------------------------------------------------------
@@ -330,8 +335,11 @@ async function lunchMoneyLeftoverInfo() {
   }
   try {
     const settings = await sendLunchMoneyRequest(`${BASE_URL}/budgets/settings`);
-    // Prefer the configured budget period; fall back to the calendar month
-    const range = getCurrentBudgetPeriod(settings) || getCalendarMonthRange();
+    // Prefer the configured budget period; fall back to the calendar month.
+    // "previous" shows the prior period instead of the current one
+    const range = SHOW_PREVIOUS_PERIOD
+      ? getPreviousBudgetPeriod(settings) || getPreviousCalendarMonthRange()
+      : getCurrentBudgetPeriod(settings) || getCalendarMonthRange();
     const params = { ...range, include_totals: true, include_rollover_pool: true };
     const [summary, categories, unreviewed] = await Promise.all([
       sendLunchMoneyRequest(`${BASE_URL}/summary`, params),
@@ -593,22 +601,24 @@ function addMonthsClamped(date, n) {
   date.setDate(Math.min(day, lastDay));
 }
 
-// Walks the anchor date forward/backward until the period containing today is found
-function getCurrentBudgetPeriod(settings) {
+// Walks the anchor date forward/backward until the period containing the target
+// date is found. Negative walking (anchor in the future) is only exercised while
+// searching for a period whose anchor sits in the future.
+function getBudgetPeriodForDate(settings, targetDate) {
   if (!settings || !settings.budget_period_anchor_date) return null;
   const anchor = parseIsoDate(settings.budget_period_anchor_date);
   if (isNaN(anchor.getTime())) return null;
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
+  const target = new Date(targetDate.getTime());
+  target.setHours(0, 0, 0, 0);
   anchor.setHours(0, 0, 0, 0);
 
   let periodStart = new Date(anchor.getTime());
-  if (periodStart > today) {
-    while (periodStart > today) {
+  if (periodStart > target) {
+    while (periodStart > target) {
       periodStart = addBudgetPeriod(periodStart, settings, -1);
     }
   } else {
-    while (addBudgetPeriod(periodStart, settings, 1) <= today) {
+    while (addBudgetPeriod(periodStart, settings, 1) <= target) {
       periodStart = addBudgetPeriod(periodStart, settings, 1);
     }
   }
@@ -626,12 +636,37 @@ function getCurrentBudgetPeriod(settings) {
   };
 }
 
+// Budget period containing today
+function getCurrentBudgetPeriod(settings) {
+  return getBudgetPeriodForDate(settings, new Date());
+}
+
+// Budget period immediately before the current one: the period containing the
+// day before the current period starts
+function getPreviousBudgetPeriod(settings) {
+  const current = getCurrentBudgetPeriod(settings);
+  if (!current) return null;
+  const prevEndTarget = parseIsoDate(current.start_date);
+  prevEndTarget.setDate(prevEndTarget.getDate() - 1);
+  return getBudgetPeriodForDate(settings, prevEndTarget);
+}
+
 // Fallback range when the account has no custom budget period
 function getCalendarMonthRange() {
   const now = new Date();
   return {
     start_date: formatDateString(new Date(now.getFullYear(), now.getMonth(), 1)),
     end_date: formatDateString(new Date(now.getFullYear(), now.getMonth() + 1, 0))
+  };
+}
+
+// Fallback range for the prior calendar month when the account has no custom
+// budget period
+function getPreviousCalendarMonthRange() {
+  const now = new Date();
+  return {
+    start_date: formatDateString(new Date(now.getFullYear(), now.getMonth() - 1, 1)),
+    end_date: formatDateString(new Date(now.getFullYear(), now.getMonth(), 0))
   };
 }
 
@@ -951,8 +986,10 @@ function addHeader(mainStack, config) {
   });
 }
 
-// Text shown under the title: pay cycle when requested, otherwise current month
+// Text shown under the title: pay cycle labels when a parameter set the period,
+// otherwise the current month name
 function budgetPeriodLabel() {
+  if (SHOW_PREVIOUS_PERIOD) return "PREVIOUS PAY CYCLE";
   if (USE_PAY_CYCLE) return "CURRENT PAY CYCLE";
   return MONTHS[new Date().getMonth()].toUpperCase();
 }
