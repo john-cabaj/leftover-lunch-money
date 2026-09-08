@@ -327,8 +327,9 @@ async function getApiKey() {
   return apiKey;
 }
 
-// Fetches the summary + categories for the current budget period, computes the
-// leftover, and pulls the latest unreviewed transactions in the same range
+// Fetches the summary + categories for the selected budget period (current or
+// previous, per the widget parameter), computes the leftover, and pulls the
+// latest unreviewed transactions in the same range
 async function lunchMoneyLeftoverInfo() {
   if (!LM_ACCESS_TOKEN) {
     return null;
@@ -350,7 +351,7 @@ async function lunchMoneyLeftoverInfo() {
       ...computeLeftover(summary, categories),
       periodLabel: periodLabelFor(settings, range),
       unreviewed: unreviewed.rows,
-      unreviewedDiag: unreviewed.diag
+      unreviewedStatus: unreviewed.status
     };
   } catch (e) {
     console.error(e);
@@ -360,7 +361,8 @@ async function lunchMoneyLeftoverInfo() {
 
 // Recent transactions awaiting review in the period, newest first. Filters
 // client-side so both v1 ("uncleared") and v2 ("unreviewed") statuses are
-// recognized, and reports a status breakdown when nothing matches
+// recognized. Returns a status so the layout can tell an empty list (nothing
+// to review) apart from a failed fetch (nothing known about the list).
 async function fetchUnreviewedTransactions(range) {
   try {
     const data = await sendLunchMoneyRequest(`${BASE_URL}/transactions`, {
@@ -384,17 +386,10 @@ async function fetchUnreviewedTransactions(range) {
         date: t.date
       }));
     writeDiagnostics(`unreviewed ${range.start_date}..${range.end_date} raw=${raw.length} statuses=${JSON.stringify(counts)} kept=${rows.length}`);
-    let diag = null;
-    if (rows.length === 0) {
-      const detail = Object.keys(counts).length
-        ? Object.entries(counts).map(([k, n]) => `${k}:${n}`).join(", ")
-        : "no transactions in period";
-      diag = `no unreviewed (${detail})`;
-    }
-    return { rows, diag };
+    return { rows, status: rows.length > 0 ? "ok" : "empty" };
   } catch (e) {
     writeDiagnostics("unreviewed request failed: " + e);
-    return { rows: [], diag: "request failed: " + e };
+    return { rows: [], status: "failed" };
   }
 }
 
@@ -528,11 +523,8 @@ function computeLeftover(summary, categories) {
 // Inflow is the sum of the summary's inflow breakdown fields
 function totalFromBreakdown(breakdown) {
   if (!breakdown) return 0;
-  let total = 0;
-  for (const key of ["other_activity", "recurring_activity", "recurring_remaining", "uncategorized"]) {
-    total += Math.abs(breakdown[key] || 0);
-  }
-  return total;
+  return ["other_activity", "recurring_activity", "recurring_remaining", "uncategorized"]
+    .reduce((total, key) => total + Math.abs(breakdown[key] || 0), 0);
 }
 
 /****************************************************
@@ -563,30 +555,32 @@ function parseIsoDate(value) {
   return new Date(+parts[0], +parts[1] - 1, +parts[2]);
 }
 
-// Steps date by count budget periods using the account's period quantity +
-// granularity. Walking back (negative count) is only exercised while searching
-// for a current period whose anchor sits in the future.
+// Steps date by count budget periods (positive moves forward, negative moves
+// back) using the account's period quantity + granularity. Backward walking is
+// how callers find the period before a given target date.
 function addBudgetPeriod(date, settings, count) {
   const d = new Date(date.getTime());
   const quantity = settings.budget_period_quantity || 1;
   const granularity = settings.budget_period_granularity || "month";
-  for (let i = 0; i < quantity * count; i++) {
+  const step = Math.sign(count) || 1;
+  for (let i = 0; i < Math.abs(quantity * count); i++) {
     switch (granularity) {
       case "day":
-        d.setDate(d.getDate() + 1);
+        d.setDate(d.getDate() + step);
         break;
       case "week":
-        d.setDate(d.getDate() + 7);
+        d.setDate(d.getDate() + 7 * step);
         break;
       case "year":
-        d.setFullYear(d.getFullYear() + 1);
+        d.setFullYear(d.getFullYear() + step);
+        // Clamp Feb 29 crossings to the prior month's last day
         if (d.getMonth() !== date.getMonth()) d.setDate(0);
         break;
       case "twice a month":
-        d.setDate(d.getDate() + 15);
+        d.setDate(d.getDate() + 15 * step);
         break;
       default: // "month" and any unexpected value behave as months
-        addMonthsClamped(d, 1);
+        addMonthsClamped(d, step);
     }
   }
   return d;
@@ -602,9 +596,8 @@ function addMonthsClamped(date, n) {
   date.setDate(Math.min(day, lastDay));
 }
 
-// Walks the anchor date forward/backward until the period containing the target
-// date is found. Negative walking (anchor in the future) is only exercised while
-// searching for a period whose anchor sits in the future.
+// Walks the anchor date until the period containing the target date is found:
+// forward normally, backward when the anchor sits in the future.
 function getBudgetPeriodForDate(settings, targetDate) {
   if (!settings || !settings.budget_period_anchor_date) return null;
   const anchor = parseIsoDate(settings.budget_period_anchor_date);
@@ -719,7 +712,7 @@ function readCache(allowStale) {
       return JSON.parse(raw);
     }
   } catch (e) {
-    return null;
+    // unreadable or corrupt cache: treat as a miss
   }
   return null;
 }
@@ -894,14 +887,14 @@ function metricColumnWidth(amountSize, leftoverSize, alignLeft) {
   return textWidth(MAX_MONEY, Math.max(amountSize, leftoverSize)) + 24;
 }
 
-// Every unreviewed transaction that fits without clipping, or an inline
-// empty/diagnostic notice. The count is derived from the widget's fixed
-// height minus everything rendered above the list, so we never let a row
-// run past the widget's bottom edge.
+// Every unreviewed transaction that fits without clipping, or an inline notice
+// when there's nothing to review (or the list couldn't load). The count is
+// derived from the widget's fixed height minus everything rendered above the
+// list, so we never let a row run past the widget's bottom edge.
 function addUnreviewedItems(parent, data, config) {
   const items = (data.unreviewed || []).slice(0, maxUnreviewedCount(data, config));
   if (items.length === 0) {
-    addUnreviewedEmpty(parent, data.unreviewedDiag, config);
+    addUnreviewedEmpty(parent, data.unreviewedStatus, config);
   } else {
     items.forEach((t) => addTransactionRow(parent, t, config));
   }
@@ -937,13 +930,15 @@ function maxUnreviewedCount(data, config) {
   return Math.min(items.length, count);
 }
 
-// Unreviewed section fallback; shows inline diagnostics when nothing was fetched
-function addUnreviewedEmpty(parent, diag, config) {
-  const text = diag ? diag : "None";
+// Unreviewed section fallback: a plain "nothing to review" notice, or a
+// "couldn't load" hint when the fetch failed. Sized to fit the column.
+function addUnreviewedEmpty(parent, status, config) {
+  const failed = status === "failed";
+  const text = failed ? "Couldn't load unreviewed" : "No unreviewed transactions";
   const empty = parent.addText(text);
   empty.font = font(Math.max(7, (config.detailFont || 9) - 2));
   empty.textColor = regularColor;
-  empty.textOpacity = diag ? 0.8 : 0.6;
+  empty.textOpacity = failed ? 0.8 : 0.6;
   empty.lineLimit = 3;
   empty.minimumScaleFactor = 0.6;
 }
@@ -1025,29 +1020,28 @@ function addCenteredText(parent, text, style) {
              UI PRIMITIVES - shared text rows
 *****************************************************/
 
-// One horizontal row holding a single styled text. Centered lines are framed
-// by flexible spacers; left-aligned lines hug the text with no trailing spacer
-// (a trailing flex spacer inflates the row's implicit width and widens the
-// whole column). Returns { row, label } so callers can tweak the text or
-// append fixed spacers afterwards.
+// One horizontal row holding a single styled text. Alignment is chosen with an
+// alignLeft / alignRight flag, defaulting to centered: centered lines get
+// flexible spacers on both sides so the text pins mid-width, left-aligned lines
+// hug the text with no spacer (a trailing flex spacer inflates the row's
+// implicit width and widens the column), and right-aligned lines add a leading
+// flex spacer. Returns { row, label } so callers can tweak the text or append
+// fixed spacers afterwards.
 function addTextRow(parent, text, options) {
+  const align = options.alignRight ? "right" : options.alignLeft ? "left" : "center";
   const row = parent.addStack();
   row.layoutHorizontally();
-  if (options.alignRight) {
-    row.addSpacer();
-  } else if (!options.alignLeft) {
-    row.addSpacer();
-  }
+  if (align !== "left") row.addSpacer();
   const label = row.addText(text);
   label.font = options.font;
   if (options.color != null) label.textColor = options.color;
-  if (options.alignRight) {
-    label.rightAlignText();
-  } else if (options.alignLeft) {
-    label.leftAlignText();
-  } else {
+  if (align === "center") {
     label.centerAlignText();
     row.addSpacer();
+  } else if (align === "right") {
+    label.rightAlignText();
+  } else {
+    label.leftAlignText();
   }
   return { row, label };
 }
