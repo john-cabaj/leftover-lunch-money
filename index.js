@@ -932,13 +932,14 @@ function maxUnreviewedCount(data, config) {
   return Math.min(items.length, count);
 }
 
-// Unreviewed section fallback: a plain "nothing to review" notice, or a
-// "couldn't load" hint when the fetch failed. Sized to fit the column.
+// Unreviewed section fallback: a plain "nothing to review" notice matching the
+// transaction-row font, or a "couldn't load" hint one size smaller when the
+// fetch failed.
 function addUnreviewedEmpty(parent, status, config) {
   const failed = status === "failed";
   const text = failed ? "Couldn't load unreviewed" : "No unreviewed transactions";
   const empty = parent.addText(text);
-  empty.font = font(Math.max(7, (config.detailFont || 9) - 2));
+  empty.font = font(failed ? Math.max(7, (config.detailFont || 9) - 2) : (config.detailFont || 9));
   empty.textColor = regularColor;
   empty.textOpacity = failed ? 0.8 : 0.6;
   empty.lineLimit = 3;
