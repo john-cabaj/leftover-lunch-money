@@ -786,7 +786,7 @@ function addBreakdownLayout(mainStack, data, config) {
 }
 
 // Inflow / Outflow / Leftover stacked vertically (small, in-app preview).
-// Captions stay centered; only the monetary amounts hug the right edge so the
+// Labels hug the left edge while the monetary amounts right-justify, so the
 // cents line up across rows. The stack fills the whole widget so any tap opens
 // Budget.
 function addStackedMetrics(parent, data, config) {
@@ -795,7 +795,7 @@ function addStackedMetrics(parent, data, config) {
   stack.layoutWeight = 1;
   stack.topAlignContent();
   stack.url = BUDGET_URL;
-  addMetrics(stack, data, config, config.inflowAmount, config.leftoverAmount, false, true);
+  addMetrics(stack, data, config, config.inflowAmount, config.leftoverAmount, false, true, true);
 }
 
 // Brand title row for the small stacked widget and the large headers
@@ -867,12 +867,14 @@ function addReviewSplit(mainStack, data, config) {
 // Inflow / Outflow / Leftover rows, sharing one badge + amount style.
 // In the medium layout (alignLeft) every amount right-justifies inside the
 // column, so the decimals share one right edge and the gap to the unreviewed
-// list is the same on all three rows, no matter what's in the list.
-function addMetrics(parent, data, config, amountSize, leftoverSize, alignLeft, alignRight) {
+// list is the same on all three rows, no matter what's in the list. The small
+// layout right-justifies its amounts too but (captionLeft) left-justifies the
+// labels rather than centering them.
+function addMetrics(parent, data, config, amountSize, leftoverSize, alignLeft, alignRight, captionLeft) {
   const columnWidth = metricColumnWidth(amountSize, leftoverSize, alignLeft);
   for (const metric of METRICS) {
     const size = metric.id === "leftover" ? leftoverSize : amountSize;
-    addCaption(parent, metric.label, config.caption, alignLeft);
+    addCaption(parent, metric.label, config.caption, captionLeft !== undefined ? captionLeft : alignLeft);
     addAmount(parent, metric.value(data), size, metric.color, alignLeft, columnWidth, alignRight);
   }
 }
