@@ -18,11 +18,7 @@ An iOS widget built with [Scriptable](https://scriptable.app) that shows a refle
 
 ## Tap Navigation
 
-Tap URLs always include the displayed period's `start_date`/`end_date` so taps open the same period the widget shows (not just the current one).
-
-- Tapping Inflow/Outflow/Leftover opens Lunch Money's budget section for the period (`lunchmoney://budget?start_date=YYYY-MM-DD&end_date=YYYY-MM-DD`)
-- Tapping the unreviewed transactions list opens transactions filtered by unreviewed for the period (`lunchmoney://transactions?status=unreviewed&include_pending=true&start_date=YYYY-MM-DD&end_date=YYYY-MM-DD`)
-- Tapping anywhere else opens the regular transactions list for the period (`lunchmoney://transactions?start_date=YYYY-MM-DD&end_date=YYYY-MM-DD`)
+Tapping anywhere on the widget opens Lunch Money's transactions view (`lunchmoney://transactions`), regardless of which period the widget displays or which region is touched. There are no per-region tap targets.
 
 ## Security Rules
 

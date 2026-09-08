@@ -13,8 +13,8 @@
  *       point-based coordinates.                                              *
  *     - Row budgets are derived from the device's real widget container size  *
  *       (see widgetSizes) so lists never overflow the bottom edge.            *
- *     - Tap targets are set on stacks, not on the widget itself, so each      *
- *       region of a medium/large widget can deep-link where it should.        *
+ *     - Every tap anywhere on the widget opens the Lunch Money transactions    *
+ *       view via a widget-level URL; layouts set no per-region tap targets.    *
  *                                                                             *
  ******************************************************************************/
 
@@ -86,11 +86,9 @@ const MAX_SIGNED_MONEY = "+$999,999.99";
 // --------------------------------------------------------------------------
 const BASE_URL = 'https://api.lunchmoney.dev/v2';
 
-// Tap targets: the widget-wide default opens the transactions list; the metrics
-// and unreviewed regions override it with their own targets
-const BUDGET_URL = "lunchmoney://budget";
-const UNREVIEWED_URL = "lunchmoney://transactions?status=unreviewed&include_pending=true";
-const DEFAULT_URL = "lunchmoney://transactions";
+// Tapping anywhere on the widget opens the Lunch Money transactions view,
+// regardless of which period the widget displays or which region is touched
+const TRANSACTIONS_URL = "lunchmoney://transactions";
 
 // --------------------------------------------------------------------------
 // Local storage
@@ -254,12 +252,12 @@ async function getWidget() {
     return widget;
   }
 
-  // Render the chosen family layout into a vertical stack; anything not
-  // assigned a specific tap target falls through to the transactions view
+  // Render the chosen family layout into a vertical stack; every tap opens the
+  // Lunch Money transactions view
   const mainStack = widget.addStack();
   mainStack.layoutVertically();
   mainStack.spacing = STACK_SPACING;
-  widget.url = layoutConfig.layout === "stacked" ? BUDGET_URL : DEFAULT_URL;
+  widget.url = TRANSACTIONS_URL;
   renderWidget(mainStack, lunchMoneyData, layoutConfig);
 
   return widget;
@@ -771,13 +769,12 @@ function withHeaderAndSpacer(mainStack, data, config, gap, body) {
   mainStack.addSpacer();
 }
 
-// extraLarge: Leftover summary plus Inflow / Outflow detail lines; taps open Budget
+// extraLarge: Leftover summary plus Inflow / Outflow detail lines
 function addBreakdownLayout(mainStack, data, config) {
   addHeader(mainStack, data, config);
   mainStack.addSpacer(6);
   const budget = mainStack.addStack();
   budget.layoutVertically();
-  budget.url = BUDGET_URL;
   addCaption(budget, "Leftover", config.caption);
   addAmount(budget, data.savings, config.amount);
   budget.addSpacer(10);
@@ -787,14 +784,12 @@ function addBreakdownLayout(mainStack, data, config) {
 
 // Inflow / Outflow / Leftover stacked vertically (small, in-app preview).
 // Labels hug the left edge while the monetary amounts right-justify, so the
-// cents line up across rows. The stack fills the whole widget so any tap opens
-// Budget.
+// cents line up across rows. The stack fills the whole widget.
 function addStackedMetrics(parent, data, config) {
   const stack = parent.addStack();
   stack.layoutVertically();
   stack.layoutWeight = 1;
   stack.topAlignContent();
-  stack.url = BUDGET_URL;
   addMetrics(stack, data, config, config.inflowAmount, config.leftoverAmount, false, true, true);
 }
 
@@ -815,7 +810,6 @@ function addMetricRow(parent, data, config) {
   for (const id of ["inflow", "leftover", "outflow"]) {
     addMetricColumn(row, getMetric(id), data, config);
   }
-  return row;
 }
 
 // One metric column; layoutWeight divides the row equally so it scales across sizes
@@ -831,14 +825,12 @@ function addMetricColumn(parentRow, metric, data, config) {
 
 // Large layout: metric columns across the width plus the unreviewed list below
 function addOverview(mainStack, data, config) {
-  const metricRow = addMetricRow(mainStack, data, config);
-  metricRow.url = BUDGET_URL;
+  addMetricRow(mainStack, data, config);
   mainStack.addSpacer(10);
   addCaption(mainStack, "Unreviewed", config.caption);
   const list = mainStack.addStack();
   list.layoutVertically();
   list.layoutWeight = 1;
-  list.url = UNREVIEWED_URL;
   addUnreviewedItems(list, data, config);
 }
 
@@ -850,7 +842,6 @@ function addReviewSplit(mainStack, data, config) {
   const left = row.addStack();
   left.layoutVertically();
   left.layoutWeight = METRICS_WEIGHT;
-  left.url = BUDGET_URL;
   addMetrics(left, data, config, config.amount, config.leftoverAmount || config.amount, true);
   left.addSpacer();
   left.addSpacer(10);
@@ -858,7 +849,6 @@ function addReviewSplit(mainStack, data, config) {
   const right = row.addStack();
   right.layoutVertically();
   right.layoutWeight = LIST_WEIGHT;
-  right.url = UNREVIEWED_URL;
   addCaption(right, "Unreviewed", config.caption, true);
   addUnreviewedItems(right, data, config);
   right.addSpacer();
