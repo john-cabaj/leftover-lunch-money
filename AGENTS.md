@@ -4,21 +4,31 @@ An iOS widget built with [Scriptable](https://scriptable.app) that shows a refle
 
 ## Architecture
 
-- Single-file widget: `index.js`
-- Runs in Scriptable app on iOS
-- Communicates with LunchMoney API
-- Pulls period totals and unreviewed transactions, computes period leftover
-- Caches data in iCloud (2-hour refresh)
+- Single-file widget: `index.js` — no build process, dependencies, or tests
+- Runs as a home-screen widget via the Scriptable app on iPhone/iPad
+- Pulls period totals, category data, and unreviewed transactions from the Lunch Money API, then computes the period leftover
+- API key is stored in the iOS Keychain (not in the widget code); the Scriptable setup prompt asks the user to paste their own key
+- Cache and diagnostics live under Scriptable's local Documents dir (`LunchMoneyWidget/`), keyed per period:
+  - `lunchMoneyCache` — current period
+  - `lunchMoneyCache_previous` — previous period
+- Cache freshness is 10 minutes (`CACHED_MS`); if a fetch fails and the cache has expired, the stale copy is used as a fallback
 
 ## Widget Parameters
 
+The Scriptable widget parameter selects the budget period to display. Matching is case-insensitive and whitespace-trimmed:
+
 - `previous` — shows the budget period before the current one
 - `current` (or empty/no value) — shows the current budget period (default)
-- Matching is case-insensitive, whitespace trimmed; cache is split per period
+
+The cache is split per period so a "previous" request never serves the current period's data (or vice versa).
+
+## Budget Periods
+
+Periods come from Lunch Money's `/budgets/settings` (anchor date, granularity, quantity, and the "use last day of month" flag); when the account has no custom period, the calendar month is used instead. `previous` resolves the period containing the day before the current period's start. Unreviewed transactions are fetched for the same range, filtering client-side so both v1 ("uncleared") and v2 ("unreviewed") statuses are recognized.
 
 ## Tap Navigation
 
-Tapping anywhere on the widget opens Lunch Money's transactions view (`lunchmoney://transactions`), regardless of which period the widget displays or which region is touched. There are no per-region tap targets.
+Tapping anywhere on the widget opens Lunch Money's transactions view (`lunchmoney://transactions`).
 
 ## Security Rules
 
@@ -27,6 +37,11 @@ Tapping anywhere on the widget opens Lunch Money's transactions view (`lunchmone
 
 ## Development Notes
 
-- No build process or dependencies — just a single JavaScript file
-- All code lives in `index.js`
-- Tested via Scriptable app on iOS devices
+- Verify syntax locally with `node --check index.js` — there is no lint or test suite
+- Functional behavior must be verified on an iOS device via Scriptable (widget families: small / medium / large / extraLarge)
+- Keep every size/measurement a named constant; row budgets derive from the real widget container size so lists never overflow
+
+## Git Workflow
+
+- Commit changes when finalized; never push to a remote
+- Commit messages use conventional prefixes: `fix:`, `feat:`, `refactor:`, `style:`, `docs:`
