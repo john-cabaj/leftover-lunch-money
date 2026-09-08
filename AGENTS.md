@@ -32,11 +32,11 @@ Tapping anywhere on the widget opens Lunch Money's transactions view (`lunchmone
 
 ## Layout Conventions
 
-- `FAMILY_LAYOUTS` holds one config per widget family (`small` / `medium` / `large` / `extraLarge`) plus an `undefined` fallback. Each config names its `layout` and a single `amount` size (all three money rows share one size), plus layout-specific fonts/caps (`caption`, `detailFont`, `payeeLen`) and per-layout `topPad` (small) / `headerPad` (medium).
-- Standard top/bottom padding is 14pt (`TOP_PAD`). The small widget uses a tighter 10pt `topPad`; the medium widget pushes its title down with a 2pt `headerPad`.
-- Layout gaps are named constants (`REVIEW_GAP`, `OVERVIEW_GAP`, `LIST_BODY_GAP`) used in BOTH the renderers (`renderWidget`, `addOverview`, `addBreakdownLayout`) and `listHeightBudget`, so a gap tweak never desyncs the rendered spacer from the row-fit math. Always update both sites together.
+- `FAMILY_LAYOUTS` holds one config per widget family (`small` / `medium` / `large` / `extraLarge`) plus an `undefined` fallback. Each config names its `layout` and a single `amount` size (all three money rows share one size), plus layout-specific fonts/caps (`caption`, `detailFont`, `payeeLen`) and per-layout `topPad` (small) / `headerPad` + `headerGap` (medium).
+- Standard top/bottom padding is 14pt (`TOP_PAD`). The small widget uses a tighter 10pt `topPad`; the medium widget pushes its title down with a 6pt `headerPad` and closes the title→period gap with a 0pt `headerGap`. The header block nests title + period in its own stack so `headerGap` can differ from the mainStack spacing; `headerHeight` stays in sync via `headerBlockGap`/`headerBlockHeight`.
+- Layout gaps are named constants (`REVIEW_GAP`, `OVERVIEW_GAP`, `LIST_BODY_GAP`) used in BOTH the renderers (`renderWidget`, `addOverview`, `addBreakdownSection`) and `listHeightBudget`, so a gap tweak never desyncs the rendered spacer from the row-fit math. Always update both sites together.
 - Widget sizes come from `widgetSizes()` (keyed by longest device screen side, with X-class fallback) so budgets scale per device. The medium widget currently fits 4 rows (SE 1), 5 rows (most 148–155pt), or 6 rows (158–170pt); every device was verified to hold exactly this many.
-- The medium review list and the row-fit function must stay in lockstep: `addTransactionRow` ends with the same trailing 1pt spacer that `rowFitHeight` reserves (`lineHeight(detailFont) + 1`).
+- The medium review list and the row-fit function must stay in lockstep: `addTransactionRow` ends with a trailing `ROW_GAP` spacer that `rowFitHeight` reserves (`lineHeight(detailFont) + ROW_GAP`).
 
 ## Security Rules
 

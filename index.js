@@ -36,11 +36,15 @@ const BRAND_GREEN = '#44958C';
 const BRAND_YELLOW = '#FBB700';
 const LOSS_RED = '#E15554';
 
-// Monospace typography for a terminal feel. Every figure is set in Menlo so
-// all digits share one advance width — which is what makes amounts right-
-// adjust and line up. White is the default text color.
-const FONT_NAME = "Menlo";
-const FONT_BOLD = "Menlo-Bold";
+// Typography follows the Lunch Money style guide: Avenir for titles and
+// labels, and a pre-installed monospace (Menlo) for every monetary figure
+// and transaction name. The monospace digits share one advance width —
+// which is what makes amounts right-adjust and line up. White is the
+// default text color.
+const FONT_NAME = "Avenir";
+const FONT_BOLD = "Avenir-Heavy";
+const MONO_FONT_NAME = "Menlo";
+const MONO_FONT_BOLD = "Menlo-Bold";
 const smallFont = new Font(FONT_NAME, 9);
 const regularColor = Color.white();
 
@@ -55,6 +59,8 @@ const expenseRed = new Color('#FF3B30');
 // Font factories so every stack shares the same typography
 function font(size) { return new Font(FONT_NAME, size); }
 function boldFont(size) { return new Font(FONT_BOLD, size); }
+function monoFont(size) { return new Font(MONO_FONT_NAME, size); }
+function monoBoldFont(size) { return new Font(MONO_FONT_BOLD, size); }
 
 // --------------------------------------------------------------------------
 // Money metrics. Single table of the three money rows every layout renders;
@@ -118,9 +124,9 @@ const MONTHS = ["January", "February", "March", "April", "May", "June", "July", 
 // Geometry
 // --------------------------------------------------------------------------
 
-// Approximate line height for a given font size. Menlo's line box is tight
-// (≈1.15× the point size), so this deliberately under-reserves the height the
-// layout actually needs, letting the row budgets fit the last row.
+// Approximate line height for a given font size. The monospace line box is
+// tight (≈1.15× the point size), so this deliberately under-reserves the
+// height the layout needs, letting the row budgets fit the last row.
 function lineHeight(size) { return Math.ceil(size * 1.15); }
 
 // Widget container sizes (pt): [width, small, medium, large] for the widget
@@ -156,28 +162,39 @@ const WIDGET_HEIGHTS = { review: WIDGET_SIZE.medium + 2, overview: WIDGET_SIZE.l
 const PADDING_Y = 28;      // setPadding(14, 10, 14, 10)
 const TOP_PAD = 14;        // default top inset; small drops to topPad below
 const STACK_SPACING = 2;   // mainStack.spacing
+const ROW_GAP = 1;         // trailing gap after each unreviewed row; keep in sync
+                           // with rowFitHeight so the list budget matches rendering
 
 // Gaps the render inserts between the header and the body, and inside the
 // overview body. Shared by BOTH renderWidget/addOverview (where the spacer is
 // rendered) and listHeightBudget (which subtracts the same points to fit list
 // rows), so a gap tweak always lands in both places together.
-const REVIEW_GAP = 2;      // review: header → metrics/list split
-const OVERVIEW_GAP = 6;    // overview + breakdownLayout: header → body
+const REVIEW_GAP = 0;      // review: header → metrics/list split; medium's headerPad
+                           // (6pt) plus this gap stays at 6pt so row counts don't change
+const OVERVIEW_GAP = 6;    // overview + extraLarge: header → body
 const LIST_BODY_GAP = 10;  // overview: metric row → "Unreviewed" caption
 
 // Sizes of the two header rows (LUNCH MONEY title and the period label beneath
-// it); HEADER_H reserves exactly their combined height. The title renders with
-// Font.boldSystemFont(TITLE_SIZE) and the period with font(PERIOD_SIZE).
+// it); headerBlockHeight reserves exactly their combined height. The title and
+// period sit in one nested stack whose gap defaults to STACK_SPACING and can be
+// tightened per layout (medium sets headerGap 0 so the title sits closer to the
+// period). The title renders with boldFont(TITLE_SIZE), the period with
+// font(PERIOD_SIZE).
 const TITLE_SIZE = 12;
 const PERIOD_SIZE = 11;
-const HEADER_H = lineHeight(TITLE_SIZE) + STACK_SPACING + lineHeight(PERIOD_SIZE);
+function headerBlockGap(config) {
+  return (config && config.headerGap) != null ? config.headerGap : STACK_SPACING;
+}
+function headerBlockHeight(config) {
+  return lineHeight(TITLE_SIZE) + headerBlockGap(config) + lineHeight(PERIOD_SIZE);
+}
 
-// Total vertical space a layout's header occupies: the fixed HEADER_H plus any
-// per-layout headerPad pushed in above the title. The pad doesn't push the body
-// down (the trailing flexible spacer absorbs it), but the row budgets still
-// account for it so list rows never cross the widget's bottom edge.
+// Total vertical space a layout's header occupies: the fixed header block height
+// plus any per-layout headerPad pushed in above the title. The pad doesn't push
+// the body down (the trailing flexible spacer absorbs it), but the row budgets
+// still account for it so list rows never cross the widget's bottom edge.
 function headerHeight(config) {
-  return HEADER_H + (config.headerPad || 0);
+  return headerBlockHeight(config) + (config.headerPad || 0);
 }
 
 // Inner content width for the medium widget: container width minus the 10pt
@@ -212,9 +229,10 @@ function smallAmountFont() {
 const smallLayout = { layout: "stacked", caption: SMALL_CAPTION, amount: smallAmountFont(), topPad: 10 };
 const FAMILY_LAYOUTS = {
   small:      smallLayout,
-  // medium: a 2pt push-in above the title; the review gap pulls back to REVIEW_GAP
-  // to compensate, so the list keeps its 6th row on every device
-  medium:     { layout: "review", caption: 13, amount: 30, detailFont: 11, payeeLen: 28, headerPad: 2 },
+  // medium: a 6pt push-in above the title keeps it clear of the top edge, and
+  // headerGap 0 pulls the title down flush against the period label; the reduced
+  // review gap compensates so every device keeps its verified row count
+  medium:     { layout: "review", caption: 13, amount: 30, detailFont: 11, payeeLen: 28, headerPad: 6, headerGap: 0 },
   large:      { layout: "overview", caption: 14, amount: 30, detailFont: 12, payeeLen: 30 },
   extraLarge: { layout: "breakdown", caption: 15, amount: 46, detailFont: 11 },
   undefined:  smallLayout
@@ -416,7 +434,7 @@ function sendLunchMoneyRequest(url, params = {}) {
 
 // "?key=value&..." query suffix, or "" when there are no params
 function buildQueryString(params) {
-  const entries = Object.entries(params || {});
+  const entries = Object.entries(params);
   if (entries.length === 0) return "";
   return "?" + entries.map(([key, value]) => `${key}=${value}`).join("&");
 }
@@ -552,7 +570,7 @@ function formatMoney(value) {
   return (value < 0 ? "-" : "") + "$" + grouped + "." + dec;
 }
 
-// Menlo is monospace: advance width ≈ 0.6em, so glyph-count × 0.6 × size
+// Monospace fonts (Menlo) use an advance width ≈ 0.6em, so glyph-count × 0.6 × size
 function textWidth(str, size) {
   return String(str).length * 0.6 * size;
 }
@@ -768,7 +786,7 @@ function renderWidget(mainStack, data, config) {
       withHeaderAndSpacer(mainStack, data, config, OVERVIEW_GAP, addOverview);
       break;
     default: // breakdown / extraLarge
-      addBreakdownLayout(mainStack, data, config);
+      withHeaderAndSpacer(mainStack, data, config, OVERVIEW_GAP, addBreakdownSection);
       break;
   }
 }
@@ -782,17 +800,15 @@ function withHeaderAndSpacer(mainStack, data, config, gap, body) {
   mainStack.addSpacer();
 }
 
-// extraLarge: Leftover summary plus Inflow / Outflow detail lines
-function addBreakdownLayout(mainStack, data, config) {
-  addHeader(mainStack, data, config);
-  mainStack.addSpacer(OVERVIEW_GAP);
-  const budget = mainStack.addStack();
+// extraLarge body: Leftover amount plus Inflow / Outflow detail lines. Fed to
+// withHeaderAndSpacer like the review/overview bodies.
+function addBreakdownSection(parent, data, config) {
+  const budget = parent.addStack();
   budget.layoutVertically();
   addCaption(budget, "Leftover", config.caption);
   addAmount(budget, data.savings, { size: config.amount });
   budget.addSpacer(LIST_BODY_GAP);
   addBreakdown(budget, data, config.detailFont);
-  mainStack.addSpacer();
 }
 
 // Inflow / Outflow / Leftover stacked vertically (small, in-app preview).
@@ -809,7 +825,7 @@ function addStackedMetrics(parent, data, config) {
 // Brand title row for the small stacked widget and the large headers
 function addBrandTitle(parent) {
   addCenteredText(parent, "LUNCH MONEY", {
-    font: Font.boldSystemFont(TITLE_SIZE),
+    font: boldFont(TITLE_SIZE),
     color: brandGreen
   });
 }
@@ -830,7 +846,7 @@ function addMetricColumn(parentRow, metric, data, config) {
   const col = parentRow.addStack();
   col.layoutVertically();
   col.layoutWeight = 1;
-  col.spacing = 2;
+  col.spacing = STACK_SPACING;
   addCaption(col, metric.label, config.caption);
   // Leftover colors by sign (no color set), other metrics stay white
   addAmount(col, metric.value(data), { size: config.amount, color: metric.color });
@@ -867,7 +883,7 @@ function addReviewSplit(mainStack, data, config) {
   right.addSpacer();
 }
 
-// Inflow / Outflow / Leftover rows, sharing one badge + amount style.
+// Inflow / Outflow / Leftover rows, sharing one caption + amount style.
 // The medium layout (alignLeft) right-justifies amounts inside a reserved
 // column, so the decimals share one right edge and the gap to the unreviewed
 // list is the same on all three rows; the small layout (alignRight) right-aligns
@@ -926,9 +942,11 @@ function listHeightBudget(config) {
   return 0;
 }
 
-// One transaction row: text line plus the trailing 1pt spacer between rows
+// One transaction row: text line plus the trailing ROW_GAP spacer between rows.
+// The trailing spacer MUST match the +ROW_GAP in rowFitHeight so the fitted row
+// count matches what the render actually draws (see addTransactionRow).
 function rowFitHeight(config) {
-  return lineHeight(config.detailFont || 9) + 1;
+  return lineHeight(config.detailFont || 9) + ROW_GAP;
 }
 
 // How many rows fit: the budget divided by the row pitch. The trailing
@@ -965,7 +983,7 @@ function addTransactionRow(parent, t, config) {
   // keep the fixed character cap.
   const maxPayee = config.layout === "review" ? mediumPayeeBudget(config) : (config.payeeLen || 16);
   const payee = row.addText(clip(t.payee, maxPayee));
-  payee.font = font(fontSize);
+  payee.font = monoFont(fontSize);
   payee.textColor = regularColor;
   payee.lineLimit = 1;
   row.addSpacer();
@@ -973,11 +991,12 @@ function addTransactionRow(parent, t, config) {
   // get a "-" in red, income a "+" in regular green
   const isInflow = t.amount < 0;
   const amount = row.addText((isInflow ? "+" : "-") + formatMoney(Math.abs(t.amount)));
-  amount.font = font(fontSize);
+  amount.font = monoFont(fontSize);
   amount.lineLimit = 1;
   amount.textColor = isInflow ? incomeGreen : expenseRed;
 
-  parent.addSpacer(1);
+  // Trailing ROW_GAP spacer between rows; matches rowFitHeight's ROW_GAP
+  parent.addSpacer(ROW_GAP);
 }
 
 // Max payee characters in the medium (review) list so a name truncates with
@@ -1004,8 +1023,13 @@ function clip(text, max) {
 // flexible spacer in the caller keeps the body pinned in place.
 function addHeader(mainStack, data, config) {
   if (config && config.headerPad) mainStack.addSpacer(config.headerPad);
-  addBrandTitle(mainStack);
-  addCenteredText(mainStack, budgetPeriodLabel(data), {
+  // Title + period share one nested stack so their gap (headerGap) can be
+  // tighter than the mainStack spacing; headerHeight keeps the budgets in sync.
+  const header = mainStack.addStack();
+  header.layoutVertically();
+  header.spacing = headerBlockGap(config);
+  addBrandTitle(header);
+  addCenteredText(header, budgetPeriodLabel(data), {
     font: font(PERIOD_SIZE),
     color: regularColor
   });
@@ -1058,10 +1082,10 @@ function addTextRow(parent, text, options) {
   return { row, label };
 }
 
-// Yellow label (e.g. "Inflow", "Leftover"); centered unless alignLeft is set
+// Bold yellow label (e.g. "Inflow", "Leftover"); centered unless alignLeft is set
 function addCaption(parent, text, size, alignLeft) {
   addTextRow(parent, text, {
-    font: font(size),
+    font: boldFont(size),
     color: brandYellow,
     alignLeft
   });
@@ -1076,12 +1100,14 @@ function addCaption(parent, text, size, alignLeft) {
 // estimating glyph widths. The small layout right-aligns instead, which lines
 // up the cents since every amount shares a two-digit fraction.
 function addAmount(parent, value, opts = {}) {
-  let text = formatMoney(value);
-  if (opts.alignLeft && opts.minWidth) {
-    text = text.padStart(MAX_MONEY.length);
-  }
+  // Left-aligned rows pad every amount to the widest figure's length so the
+  // lines come out equal length and, in a monospace font, end on the same
+  // right edge (see metricColumnWidth).
+  const text = opts.alignLeft && opts.minWidth
+    ? formatMoney(value).padStart(MAX_MONEY.length)
+    : formatMoney(value);
   const { row, label } = addTextRow(parent, text, {
-    font: boldFont(opts.size),
+    font: monoBoldFont(opts.size),
     color: opts.color || (value < 0 ? lossRed : brandGreen),
     alignLeft: opts.alignLeft,
     alignRight: opts.alignRight
@@ -1112,7 +1138,7 @@ function addDetailRow(mainStack, label, value, detailFont) {
   labelText.textOpacity = 0.6;
   row.addSpacer(8);
   const valueText = row.addText(formatMoney(value));
-  valueText.font = font(detailFont || 9);
+  valueText.font = monoFont(detailFont || 9);
   valueText.lineLimit = 1;
   valueText.minimumScaleFactor = 0.5;
   valueText.textColor = regularColor;
