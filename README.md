@@ -4,7 +4,7 @@
 Disclaimer: based on the great widget from @aryascripts, subsequently forked from @berndsalewski as well.
 
 # Lunch Money Widget
-<img width="806" height="374" alt="IMG_0096" src="https://github.com/user-attachments/assets/88213b0d-c2d9-4e60-b608-69e432cdc5a3" />
+<img width="806" height="374" alt="IMG_0113" src="https://github.com/user-attachments/assets/15848212-929c-43d1-ab0c-268f44b6366c" />
 
 An iOS Widget for Leftover Lunch Money status, along with a short list of unreviewed transactions.
 
@@ -37,13 +37,13 @@ Tapping the widget will open Lunch Money at the Transactions page.
 
 ## Other images
 ### Large
-<img width="539" height="539" alt="IMG_0099" src="https://github.com/user-attachments/assets/1754c7a4-34a2-4517-be4d-ce0010e75abd" />
+<img width="539" height="539" alt="IMG_0112" src="https://github.com/user-attachments/assets/4a223323-6b3f-4c43-9d42-08f1a8e8e257" />
 
 ### Small
-<img width="253" height="253" alt="IMG_0098" src="https://github.com/user-attachments/assets/09b29b03-8d4a-4045-a093-5cdc4e891689" />
+<img width="253" height="253" alt="IMG_0115" src="https://github.com/user-attachments/assets/81b10238-37d9-4f2c-a2a0-9e977df6e036" />
 
 ### Medium
-<img width="537" height="249" alt="IMG_0096" src="https://github.com/user-attachments/assets/00a5b9ab-4013-4764-9212-282599ea3442" />
+<img width="537" height="249" alt="IMG_0113" src="https://github.com/user-attachments/assets/281cae29-c497-4ed1-a7ef-1be63a68857c" />
 
 ## Privacy
 Cached data (unreviewed transactions and inflow/outflow/leftover information) and diagnostics data are stored in Scriptable's Documents directory.

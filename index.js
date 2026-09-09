@@ -62,6 +62,17 @@ function boldFont(size) { return new Font(FONT_BOLD, size); }
 function monoFont(size) { return new Font(MONO_FONT_NAME, size); }
 function monoBoldFont(size) { return new Font(MONO_FONT_BOLD, size); }
 
+// "@ H:MM AM/PM" from a timestamp
+function formatUpdateTime(timestamp) {
+  if (!timestamp) return "";
+  const d = new Date(timestamp);
+  let h = d.getHours();
+  const mm = d.getMinutes().toString().padStart(2, "0");
+  const ampm = h >= 12 ? "PM" : "AM";
+  h = h % 12 || 12;
+  return `@ ${h}:${mm} ${ampm}`;
+}
+
 // --------------------------------------------------------------------------
 // Money metrics. Single table of the three money rows every layout renders;
 // each row knows how to label itself and pull its value from loaded data.
@@ -173,6 +184,7 @@ const REVIEW_GAP = 0;      // review: header → metrics/list split; medium's he
                            // (6pt) plus this gap stays at 6pt so row counts don't change
 const OVERVIEW_GAP = 6;    // overview + extraLarge: header → body
 const LIST_BODY_GAP = 10;  // overview: metric row → "Unreviewed" caption
+const TITLE_TIME_GAP = 4;  // brand title → last-update time on the same line
 
 // Sizes of the two header rows (LUNCH MONEY title and the period label beneath
 // it); headerBlockHeight reserves exactly their combined height. The title and
@@ -307,17 +319,23 @@ function addErrorState(widget, message, config) {
 // Prefer a fresh cached copy, fetch from the API, then fall back to stale cache
 async function getAllData() {
   const fresh = readCache();
-  if (fresh) return fresh;
+  if (fresh) {
+    if (!fresh.lastUpdated) fresh.lastUpdated = cacheModTime();
+    return fresh;
+  }
 
   const data = await lunchMoneyLeftoverInfo();
 
   if (data) {
+    data.lastUpdated = Date.now();
     writeCache(data);
     return data;
   }
 
   // no connection: fall back to stale cache
-  return readCache(true);
+  const stale = readCache(true);
+  if (stale && !stale.lastUpdated) stale.lastUpdated = cacheModTime();
+  return stale;
 }
 
 /****************************************************
@@ -722,6 +740,12 @@ function widgetFolder() {
 function cachePath() { return widgetFolder() + "/" + CACHE_KEY; }
 function diagnosticsPath() { return widgetFolder() + "/diagnostics.txt"; }
 
+// Cache file modification time (ms since epoch); returns now on any error
+function cacheModTime() {
+  try { return FileManager.local().modificationDate(cachePath()).getTime(); }
+  catch (e) { return Date.now(); }
+}
+
 // Idempotently ensures the widget folder exists (createDirectory(_, true) is
 // a no-op when it's already there)
 function ensureWidgetFolder() {
@@ -776,7 +800,7 @@ function writeCache(data) {
 function renderWidget(mainStack, data, config) {
   switch (config.layout) {
     case "stacked":
-      addBrandTitle(mainStack);
+      addBrandTitle(mainStack, data, config);
       addStackedMetrics(mainStack, data, config);
       break;
     case "review":
@@ -822,12 +846,52 @@ function addStackedMetrics(parent, data, config) {
   addMetrics(stack, data, config, { amountSize: config.amount, alignRight: true, captionLeft: true });
 }
 
-// Brand title row for the small stacked widget and the large headers
-function addBrandTitle(parent) {
-  addCenteredText(parent, "LUNCH MONEY", {
-    font: boldFont(TITLE_SIZE),
-    color: brandGreen
-  });
+// Brand title row. On the header-based widgets (review / overview /
+// breakdown) LUNCH MONEY stays dead-center with the "@ H:MM AM/PM" timestamp
+// right next to it (TITLE_TIME_GAP apart): an invisible mirror of the time
+// balances the time + gap on the left and the two flexible spacers share the
+// rest, so the centering never shifts whether or not the time is rendered.
+// The small stacked widget has no room to center beside the time, so its title
+// left-justifies like the Inflow caption and the time simply follows it.
+// centerAlignContent levels the smaller timestamp with the title on every
+// layout.
+function addBrandTitle(parent, data, config) {
+  const row = parent.addStack();
+  row.layoutHorizontally();
+  row.centerAlignContent();
+  const timeText = (data && config) ? formatUpdateTime(data.lastUpdated) : "";
+  const timeFont = timestampFont(config);
+  const addTime = () => {
+    row.addSpacer(TITLE_TIME_GAP);
+    const time = row.addText(timeText);
+    time.font = timeFont;
+    time.textColor = regularColor;
+    time.lineLimit = 1;
+  };
+  if (config && config.layout === "stacked") {
+    const title = row.addText("LUNCH MONEY");
+    title.font = boldFont(TITLE_SIZE);
+    title.textColor = brandGreen;
+    title.leftAlignText();
+    title.lineLimit = 1;
+    if (timeText) addTime();
+    return;
+  }
+  if (timeText) {
+    const mirror = row.addText(timeText);
+    mirror.font = timeFont;
+    mirror.textOpacity = 0;
+    mirror.lineLimit = 1;
+    row.addSpacer(TITLE_TIME_GAP);
+  }
+  row.addSpacer();
+  const title = row.addText("LUNCH MONEY");
+  title.font = boldFont(TITLE_SIZE);
+  title.textColor = brandGreen;
+  title.centerAlignText();
+  title.lineLimit = 1;
+  if (timeText) addTime();
+  row.addSpacer();
 }
 
 // Inflow / Leftover / Outflow across the width as three equal columns that scale
@@ -959,6 +1023,22 @@ function maxUnreviewedCount(data, config) {
   return Math.min(items.length, count);
 }
 
+// Font for the "No unreviewed transactions" notice: Avenir at the layout's
+// detail size so secondary text shares one size.
+function unreviewedFont(config) {
+  return font(config.detailFont || 9);
+}
+
+// Font for the title-line "@ H:MM AM/PM" timestamp: a couple of sizes below
+// the unreviewed text (and so a bit smaller than the period label above it).
+// Small has no detailFont of its own, so it falls back to medium's detail size
+// and matches the medium timestamp exactly rather than dropping to the 7pt
+// floor. Same floor as the failed-unreviewed hint so it stays readable.
+function timestampFont(config) {
+  const base = (config && config.detailFont) || 11;
+  return font(Math.max(7, base - 2));
+}
+
 // Unreviewed section fallback: a plain "nothing to review" notice matching the
 // transaction-row font, or a "couldn't load" hint one size smaller when the
 // fetch failed.
@@ -966,7 +1046,7 @@ function addUnreviewedEmpty(parent, status, config) {
   const failed = status === "failed";
   const text = failed ? "Couldn't load unreviewed" : "No unreviewed transactions";
   const empty = parent.addText(text);
-  empty.font = font(failed ? Math.max(7, (config.detailFont || 9) - 2) : (config.detailFont || 9));
+  empty.font = failed ? font(Math.max(7, (config.detailFont || 9) - 2)) : unreviewedFont(config);
   empty.textColor = regularColor;
   empty.textOpacity = failed ? 0.8 : 0.6;
   empty.lineLimit = 3;
@@ -1028,7 +1108,7 @@ function addHeader(mainStack, data, config) {
   const header = mainStack.addStack();
   header.layoutVertically();
   header.spacing = headerBlockGap(config);
-  addBrandTitle(header);
+  addBrandTitle(header, data, config);
   addCenteredText(header, budgetPeriodLabel(data), {
     font: font(PERIOD_SIZE),
     color: regularColor
