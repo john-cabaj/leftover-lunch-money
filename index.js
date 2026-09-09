@@ -62,6 +62,11 @@ function boldFont(size) { return new Font(FONT_BOLD, size); }
 function monoFont(size) { return new Font(MONO_FONT_NAME, size); }
 function monoBoldFont(size) { return new Font(MONO_FONT_BOLD, size); }
 
+// Monospace (Menlo) advance width ≈ 0.6em per glyph; textWidth and the width
+// formulas below multiply this by the glyph count at a given point size.
+// Making the 0.6 a named constant keeps every width estimate derived from it.
+const MONO_GLYPH_WIDTH = 0.6;
+
 // "@ H:MM AM/PM" from a timestamp
 function formatUpdateTime(timestamp) {
   if (!timestamp) return "";
@@ -135,10 +140,15 @@ const MONTHS = ["January", "February", "March", "April", "May", "June", "July", 
 // Geometry
 // --------------------------------------------------------------------------
 
+// Monospace line box ≈ 1.15× the point size; lineHeight under-reserves height
+// from this so the row budgets fit the last row.
+const LINE_HEIGHT_FACTOR = 1.15;
+
 // Approximate line height for a given font size. The monospace line box is
-// tight (≈1.15× the point size), so this deliberately under-reserves the
-// height the layout needs, letting the row budgets fit the last row.
-function lineHeight(size) { return Math.ceil(size * 1.15); }
+// tight (≈LINE_HEIGHT_FACTOR× the point size), so this deliberately
+// under-reserves the height the layout needs, letting the row budgets fit the
+// last row.
+function lineHeight(size) { return Math.ceil(size * LINE_HEIGHT_FACTOR); }
 
 // Widget container sizes (pt): [width, small, medium, large] for the widget
 // families by device screen (portrait points). Read from Device.screenSize() so
@@ -185,6 +195,8 @@ const REVIEW_GAP = 0;      // review: header → metrics/list split; medium's he
 const OVERVIEW_GAP = 6;    // overview + extraLarge: header → body
 const LIST_BODY_GAP = 10;  // overview: metric row → "Unreviewed" caption
 const TITLE_TIME_GAP = 4;  // brand title → last-update time on the same line
+const INLINE_GAP = 8;      // gap between a row's left label and its right value
+const METRIC_LIST_GAP = 24; // review: metrics column → unreviewed list
 
 // Sizes of the two header rows (LUNCH MONEY title and the period label beneath
 // it); headerBlockHeight reserves exactly their combined height. The title and
@@ -229,12 +241,12 @@ const LIST_WEIGHT = 69;
 const SMALL_CAPTION = 10;
 function smallAmountFont() {
   const innerWidth = WIDGET_SIZE.width - 20; // 10pt side padding each edge
-  const byWidth = Math.floor(innerWidth / (0.6 * MAX_MONEY.length));
+  const byWidth = Math.floor(innerWidth / (MONO_GLYPH_WIDTH * MAX_MONEY.length));
   // Height left for the three amount rows after padding, title, gaps, and the
   // three captions; 2pt slack keeps the final row from clipping.
   const rowBudget = WIDGET_SIZE.small - PADDING_Y - lineHeight(TITLE_SIZE)
     - STACK_SPACING - 3 * lineHeight(SMALL_CAPTION) - 2;
-  const byHeight = Math.floor(rowBudget / (3 * 1.15));
+  const byHeight = Math.floor(rowBudget / (3 * LINE_HEIGHT_FACTOR));
   return Math.min(byWidth, byHeight);
 }
 
@@ -588,9 +600,10 @@ function formatMoney(value) {
   return (value < 0 ? "-" : "") + "$" + grouped + "." + dec;
 }
 
-// Monospace fonts (Menlo) use an advance width ≈ 0.6em, so glyph-count × 0.6 × size
+// Monospace fonts (Menlo) use an advance width ≈ MONO_GLYPH_WIDTH em, so
+// glyph-count × MONO_GLYPH_WIDTH × size
 function textWidth(str, size) {
-  return String(str).length * 0.6 * size;
+  return String(str).length * MONO_GLYPH_WIDTH * size;
 }
 
 // YYYY-MM-DD for the API
@@ -832,7 +845,7 @@ function addBreakdownSection(parent, data, config) {
   addCaption(budget, "Leftover", config.caption);
   addAmount(budget, data.savings, { size: config.amount });
   budget.addSpacer(LIST_BODY_GAP);
-  addBreakdown(budget, data, config.detailFont);
+  addBreakdown(budget, data, detailFontSize(config));
 }
 
 // Inflow / Outflow / Leftover stacked vertically (small, in-app preview).
@@ -846,51 +859,56 @@ function addStackedMetrics(parent, data, config) {
   addMetrics(stack, data, config, { amountSize: config.amount, alignRight: true, captionLeft: true });
 }
 
-// Brand title row. On the header-based widgets (review / overview /
-// breakdown) LUNCH MONEY stays dead-center with the "@ H:MM AM/PM" timestamp
-// right next to it (TITLE_TIME_GAP apart): an invisible mirror of the time
-// balances the time + gap on the left and the two flexible spacers share the
-// rest, so the centering never shifts whether or not the time is rendered.
-// The small stacked widget has no room to center beside the time, so its title
-// left-justifies like the Inflow caption and the time simply follows it.
-// centerAlignContent levels the smaller timestamp with the title on every
-// layout.
+// The "LUNCH MONEY" brand text, left- or center-aligned per layout. Shared by
+// both title branches so the two can't drift apart.
+function addBrandTitleText(parent, align) {
+  const title = parent.addText("LUNCH MONEY");
+  title.font = boldFont(TITLE_SIZE);
+  title.textColor = brandGreen;
+  title.lineLimit = 1;
+  if (align === "left") title.leftAlignText(); else title.centerAlignText();
+  return title;
+}
+
+// The "@ H:MM AM/PM" timestamp label with the shared smaller font + period
+// color. The centered layout renders it twice — once invisible (textOpacity 0)
+// as the width-balancing mirror, once as the visible text — so both go through
+// here and stay exactly the same width.
+function addTimestamp(parent, timeText, config, invisible) {
+  const label = parent.addText(timeText);
+  label.font = timestampFont(config);
+  label.textColor = regularColor;
+  label.lineLimit = 1;
+  if (invisible) label.textOpacity = 0;
+  return label;
+}
+
+// Brand title row. On the header-based widgets (review / overview / breakdown)
+// LUNCH MONEY stays dead-center with the timestamp right next to it
+// (TITLE_TIME_GAP apart): an invisible mirror of the time balances the time +
+// gap on the left and the two flexible spacers share the rest, so the centering
+// never shifts whether or not the time is rendered. The small stacked widget
+// has no room to center beside the time, so its title left-justifies like the
+// Inflow caption and the time simply follows it. centerAlignContent levels the
+// smaller timestamp with the title on every layout.
 function addBrandTitle(parent, data, config) {
   const row = parent.addStack();
   row.layoutHorizontally();
   row.centerAlignContent();
   const timeText = (data && config) ? formatUpdateTime(data.lastUpdated) : "";
-  const timeFont = timestampFont(config);
-  const addTime = () => {
+  const separatedTime = (invisible) => {
     row.addSpacer(TITLE_TIME_GAP);
-    const time = row.addText(timeText);
-    time.font = timeFont;
-    time.textColor = regularColor;
-    time.lineLimit = 1;
+    addTimestamp(row, timeText, config, invisible);
   };
   if (config && config.layout === "stacked") {
-    const title = row.addText("LUNCH MONEY");
-    title.font = boldFont(TITLE_SIZE);
-    title.textColor = brandGreen;
-    title.leftAlignText();
-    title.lineLimit = 1;
-    if (timeText) addTime();
+    addBrandTitleText(row, "left");
+    if (timeText) separatedTime(false);
     return;
   }
-  if (timeText) {
-    const mirror = row.addText(timeText);
-    mirror.font = timeFont;
-    mirror.textOpacity = 0;
-    mirror.lineLimit = 1;
-    row.addSpacer(TITLE_TIME_GAP);
-  }
+  if (timeText) separatedTime(true);
   row.addSpacer();
-  const title = row.addText("LUNCH MONEY");
-  title.font = boldFont(TITLE_SIZE);
-  title.textColor = brandGreen;
-  title.centerAlignText();
-  title.lineLimit = 1;
-  if (timeText) addTime();
+  addBrandTitleText(row, "center");
+  if (timeText) separatedTime(false);
   row.addSpacer();
 }
 
@@ -969,13 +987,13 @@ function addMetrics(parent, data, config, opts) {
 }
 
 // Fixed reserve for a left-aligned metrics column: room for the widest
-// plausible figure at the row's size, plus the 24pt gap that separates the
-// right-justified amounts from the unreviewed list. Keeping it a pure function
-// of the font size means the list position (and the margin on every row)
-// never shifts with the amounts or the list content.
+// plausible figure at the row's size, plus the gap that separates the
+// right-justified amounts from the unreviewed list (METRIC_LIST_GAP). Keeping
+// it a pure function of the font size means the list position (and the margin
+// on every row) never shifts with the amounts or the list content.
 function metricColumnWidth(size, alignLeft) {
   if (!alignLeft) return undefined;
-  return textWidth(MAX_MONEY, size) + 24;
+  return textWidth(MAX_MONEY, size) + METRIC_LIST_GAP;
 }
 
 // Every unreviewed transaction that fits without clipping, or an inline notice
@@ -1010,7 +1028,7 @@ function listHeightBudget(config) {
 // The trailing spacer MUST match the +ROW_GAP in rowFitHeight so the fitted row
 // count matches what the render actually draws (see addTransactionRow).
 function rowFitHeight(config) {
-  return lineHeight(config.detailFont || 9) + ROW_GAP;
+  return lineHeight(detailFontSize(config)) + ROW_GAP;
 }
 
 // How many rows fit: the budget divided by the row pitch. The trailing
@@ -1023,10 +1041,18 @@ function maxUnreviewedCount(data, config) {
   return Math.min(items.length, count);
 }
 
+// The layout's secondary-text size: the per-layout detailFont with a
+// caller-supplied fallback (9 for unreviewed rows; 11 so the small timestamp
+// matches medium's instead of bottoming out at 7pt). The single source every
+// detail-sized measure derives from, so a size tweak lands everywhere.
+function detailFontSize(config, fallback) {
+  return (config && config.detailFont) || fallback || 9;
+}
+
 // Font for the "No unreviewed transactions" notice: Avenir at the layout's
 // detail size so secondary text shares one size.
 function unreviewedFont(config) {
-  return font(config.detailFont || 9);
+  return font(detailFontSize(config));
 }
 
 // Font for the title-line "@ H:MM AM/PM" timestamp: a couple of sizes below
@@ -1035,8 +1061,7 @@ function unreviewedFont(config) {
 // and matches the medium timestamp exactly rather than dropping to the 7pt
 // floor. Same floor as the failed-unreviewed hint so it stays readable.
 function timestampFont(config) {
-  const base = (config && config.detailFont) || 11;
-  return font(Math.max(7, base - 2));
+  return font(Math.max(7, detailFontSize(config, 11) - 2));
 }
 
 // Unreviewed section fallback: a plain "nothing to review" notice matching the
@@ -1046,7 +1071,7 @@ function addUnreviewedEmpty(parent, status, config) {
   const failed = status === "failed";
   const text = failed ? "Couldn't load unreviewed" : "No unreviewed transactions";
   const empty = parent.addText(text);
-  empty.font = failed ? font(Math.max(7, (config.detailFont || 9) - 2)) : unreviewedFont(config);
+  empty.font = failed ? font(Math.max(7, detailFontSize(config) - 2)) : unreviewedFont(config);
   empty.textColor = regularColor;
   empty.textOpacity = failed ? 0.8 : 0.6;
   empty.lineLimit = 3;
@@ -1057,7 +1082,7 @@ function addUnreviewedEmpty(parent, status, config) {
 function addTransactionRow(parent, t, config) {
   const row = parent.addStack();
   row.layoutHorizontally();
-  const fontSize = config.detailFont || 9;
+  const fontSize = detailFontSize(config);
   // In the medium (review) list the payee is capped by row width so a long
   // name truncates with "…" instead of running into its amount; other layouts
   // keep the fixed character cap.
@@ -1085,11 +1110,11 @@ function addTransactionRow(parent, t, config) {
 // against the list column's real width (its share of the inner width), not the
 // whole widget, so long names use the space the layout actually gives them.
 function mediumPayeeBudget(config) {
-  const fs = config.detailFont || 9;
+  const fs = detailFontSize(config);
   const amountW = textWidth(MAX_SIGNED_MONEY, fs);
   const listW = (MEDIUM_INNER_WIDTH * LIST_WEIGHT) / (METRICS_WEIGHT + LIST_WEIGHT);
-  const room = Math.max(0, listW - 8 - amountW);
-  return Math.max(4, Math.floor(room / (0.6 * fs)));
+  const room = Math.max(0, listW - INLINE_GAP - amountW);
+  return Math.max(4, Math.floor(room / (MONO_GLYPH_WIDTH * fs)));
 }
 
 // Truncate to max characters, hinting overflow with an ellipsis
@@ -1213,12 +1238,12 @@ function addDetailRow(mainStack, label, value, detailFont) {
   const row = mainStack.addStack();
   row.layoutHorizontally();
   const labelText = row.addText(label);
-  labelText.font = font(detailFont || 9);
+  labelText.font = font(detailFont);
   labelText.textColor = regularColor;
   labelText.textOpacity = 0.6;
-  row.addSpacer(8);
+  row.addSpacer(INLINE_GAP);
   const valueText = row.addText(formatMoney(value));
-  valueText.font = monoFont(detailFont || 9);
+  valueText.font = monoFont(detailFont);
   valueText.lineLimit = 1;
   valueText.minimumScaleFactor = 0.5;
   valueText.textColor = regularColor;
