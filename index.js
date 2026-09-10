@@ -481,6 +481,7 @@ function indexCategories(categories) {
   const add = (category) => {
     info[category.id] = {
       isIncome: category.is_income,
+      excludeFromTotals: !!category.exclude_from_totals,
       isGroup: !!category.is_group,
       groupId: category.group_id != null ? category.group_id : null
     };
@@ -540,7 +541,10 @@ function categoryRows(summary, categories) {
   const { info, names } = indexCategories(categories);
 
   // Start from every non-income entry
-  const entries = (summary.categories || []).filter((entry) => !(info[entry.category_id] || {}).isIncome);
+  const entries = (summary.categories || []).filter((entry) => {
+    const cat = info[entry.category_id] || {};
+    return !cat.isIncome && !cat.excludeFromTotals;
+  });
 
   // Track which groups and which children hold budgets, to avoid double counting
   const { groupedBudgeted, groupHasBudgetedChildren } = budgetGrouping(entries, info);
