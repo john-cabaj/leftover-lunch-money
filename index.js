@@ -111,6 +111,17 @@ const BASE_URL = 'https://api.lunchmoney.dev/v2';
 // regardless of which period the widget displays or which region is touched
 const TRANSACTIONS_URL = "lunchmoney://transactions";
 
+// Fields of the /summary totals breakdown that feed each side of the leftover.
+// Inflow counts every source. Outflow only sums the uncategorized buckets:
+// transactions with no category never appear in a category row, so they'd
+// otherwise be counted as neither inflow nor outflow. Every other outflow
+// field already shows up in a budgeted or unbudgeted category's contribution.
+// (DECLARED UP HERE so they initialize before the boot sequence awaits — the
+// calc functions reference them, and top-level await below would otherwise
+// read them from the temporal dead zone.)
+const INFLOW_FIELDS = ["other_activity", "recurring_activity", "recurring_remaining", "uncategorized"];
+const OUTFLOW_FIELDS = ["uncategorized", "uncategorized_recurring"];
+
 // --------------------------------------------------------------------------
 // Local storage
 // --------------------------------------------------------------------------
@@ -398,7 +409,10 @@ async function lunchMoneyLeftoverInfo() {
     // Prefer the configured budget period; fall back to the calendar month.
     // "previous" shows the prior period instead of the current one
     const range = getPeriodRange(settings, SHOW_PREVIOUS_PERIOD);
-    const params = { ...range, include_totals: true, include_rollover_pool: true };
+    // include_exclude_from_budgets keeps "exclude from budget" categories in the
+    // summary: only income and "exclude from totals" categories drop out of
+    // the leftover, so budget-excluded spending must still count as outflow.
+    const params = { ...range, include_totals: true, include_rollover_pool: true, include_exclude_from_budgets: true };
     const [summary, categories, unreviewed] = await Promise.all([
       sendLunchMoneyRequest(`${BASE_URL}/summary`, params),
       sendLunchMoneyRequest(`${BASE_URL}/categories`),
@@ -540,7 +554,9 @@ function shapeBudgetRow(entry, info, names) {
 function categoryRows(summary, categories) {
   const { info, names } = indexCategories(categories);
 
-  // Start from every non-income entry
+  // Start from every spend entry: the only transactions excluded from the
+  // leftover are income and categories flagged "exclude from totals" — they
+  // are outside the money in/out picture. Every other category counts.
   const entries = (summary.categories || []).filter((entry) => {
     const cat = info[entry.category_id] || {};
     return !cat.isIncome && !cat.excludeFromTotals;
@@ -569,14 +585,18 @@ function shouldCountEntry(entry, info, groupedBudgeted, groupHasBudgetedChildren
   return true;
 }
 
-// Money in this period minus what we're on the hook to spend in it
+// Money in this period minus what we're on the hook to spend in it. Inflow is
+// everything that came in; outflow is what every category row commits to spend
+// plus the uncategorized spend that lives outside all rows, so non-budget
+// spending still shrinks the leftover.
 function computeLeftover(summary, categories) {
   if (!summary || !Array.isArray(summary.categories)) {
     return null;
   }
 
-  const inflow = Math.abs(totalFromBreakdown(summary.totals && summary.totals.inflow));
-  const outflow = categoryRows(summary, categories).reduce((sum, row) => sum + row.contribution, 0);
+  const inflow = sumBreakdownFields(summary.totals && summary.totals.inflow, INFLOW_FIELDS);
+  const outflow = categoryRows(summary, categories).reduce((sum, row) => sum + row.contribution, 0)
+    + sumBreakdownFields(summary.totals && summary.totals.outflow, OUTFLOW_FIELDS);
 
   return {
     inflow,
@@ -585,11 +605,12 @@ function computeLeftover(summary, categories) {
   };
 }
 
-// Inflow is the sum of the summary's inflow breakdown fields
-function totalFromBreakdown(breakdown) {
+// Sum a totals breakdown's named fields (declared as INFLOW_FIELDS /
+// OUTFLOW_FIELDS in the configuration block) as non-negative magnitudes,
+// treating a missing breakdown or field as zero (never null)
+function sumBreakdownFields(breakdown, keys) {
   if (!breakdown) return 0;
-  return ["other_activity", "recurring_activity", "recurring_remaining", "uncategorized"]
-    .reduce((total, key) => total + Math.abs(breakdown[key] || 0), 0);
+  return keys.reduce((total, key) => total + Math.abs(breakdown[key] || 0), 0);
 }
 
 /****************************************************
