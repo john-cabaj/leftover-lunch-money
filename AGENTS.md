@@ -26,6 +26,20 @@ The cache is split per period so a "previous" request never serves the current p
 
 Periods come from Lunch Money's `/budgets/settings` (anchor date, granularity, quantity, and the "use last day of month" flag); when the account has no custom period, the calendar month is used instead. `previous` resolves the period containing the day before the current period's start. Unreviewed transactions are fetched for the same range, filtering client-side so both v1 ("uncleared") and v2 ("unreviewed") statuses are recognized.
 
+## Leftover Calculation
+
+`computeLeftover` is budget-based, not spend-based: `leftover = inflow − outflow`.
+
+- `inflow` is the sum of the summary's `totals.inflow` breakdown fields (`other_activity`, `recurring_activity`, `recurring_remaining`, `uncategorized`), as magnitudes.
+- `outflow` is every category row's `contribution` plus the summary's `totals.outflow.uncategorized` and `uncategorized_recurring` buckets.
+- A budgeted category contributes its budget (budget + overspend when its `available` is negative); an unbudgeted category contributes its activity. Rows and the uncategorized buckets are summed with `sumBreakdownFields`.
+- Non-budget spending still drains the leftover, via three routes:
+  - Categories with no budget amount still appear in `/summary`'s category array with `budgeted: null`, so they contribute their activity.
+  - Categories flagged `exclude_from_budget` are omitted from that array unless the request passes `include_exclude_from_budgets: true` (the widget always does), so budget-excluded spending is still counted.
+  - Transactions with no category never appear in a category row at all; they only surface in the `totals.outflow.uncategorized` buckets.
+- The only categories dropped from the leftover are income and categories flagged `exclude_from_totals`. `exclude_from_budget` alone never excludes a category from outflow.
+- Groups: budgeted groups and budgeted children are mutually exclusive (`shouldCountEntry`) — a group row counts only when it holds its own budget with no budgeted children; otherwise its children count individually.
+
 ## Tap Navigation
 
 Tapping anywhere on the widget opens Lunch Money's transactions view (`lunchmoney://transactions`).
@@ -46,6 +60,8 @@ Tapping anywhere on the widget opens Lunch Money's transactions view (`lunchmone
 ## Development Notes
 
 - Verify syntax locally with `node --check index.js` — there is no lint or test suite
+- The leftover math can be exercised in plain Node: extract the section of `index.js` between `function indexCategories(` and `function formatMoney(` and run it against the mock API. `index.js` cannot be required directly because it evaluates Scriptable globals (e.g. `new Font`) at load.
+- Mock API behavior (https://mock.lunchmoney.dev/v2): `/categories` is stable across calls, but `/summary` returns varying data on every request and requires `start_date`/`end_date` (400 otherwise). Verify with relative invariants (e.g. outflow rows + uncategorized buckets = total outflow), not fixed expected numbers.
 - Functional behavior must be verified on an iOS device via Scriptable (widget families: small / medium / large / extraLarge)
 - Keep every size/measurement a named constant; row budgets derive from the real widget container size so lists never overflow
 - `FAMILY_LAYOUTS` uses one `amount` size for all three money rows; layouts pick their own row ORDER, so don't reintroduce per-metric-size duplication
