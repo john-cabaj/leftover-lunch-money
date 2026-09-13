@@ -12,7 +12,7 @@ One of my favorite features from a previous budgeting app was the ability to get
 
 I also thought it would be helpful to see a list of unreviewed transactions, as those are generally the newest ones coming in. This information plus the Leftover tracker helps me keep on top of my budget in close to real-time. An additional helpful feature is that the widget can show the previous period or the current period - so I've set up a iOS Widget stack of one widget showing the previous month, and one showing the current month.
 
-Tapping the widget opens the Lunch Money web app (in the browser) to the following locations, relative to the period selected: 
+Tapping the widget opens the Lunch Money web app in a Scriptable WebView (inside Scriptable — avoids app redirect to Safari) to the following locations, relative to the period selected:
 * Inflow/Outflow/Leftover section opens the budget
 * Unreviewed list opens the list of transactions that are set to "unreviewed" (including pending transactions)
 * Anywhere else opens the full list of transactions (including pending transactions)

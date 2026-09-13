@@ -16,9 +16,10 @@
  *     - The METRICS table is the single source for what each money row        *
  *       shows (label, value, color); layouts only choose order and size.      *
  *     - Tap targets deep-link to the Lunch Money web app at the displayed     *
- *       period (see AGENTS.md → Tap Navigation); per-region targets live on   *
- *       stacks, and the widget-wide url is the fallback (transactions, or     *
- *       budget on the stacked small widget).                                  *
+ *       period (see AGENTS.md → Tap Navigation) and are shown inside           *
+ *       Scriptable in a WebView — never exported to the browser. Per-region   *
+ *       targets live on stacks; the widget-wide url is the fallback           *
+ *       (transactions, or budget on the stacked small widget).                *
  *                                                                             *
  ******************************************************************************/
 
@@ -75,10 +76,9 @@ const MONO_GLYPH_WIDTH = 0.6;
 function formatUpdateTime(timestamp) {
   if (!timestamp) return "";
   const d = new Date(timestamp);
-  let h = d.getHours();
+  const h = d.getHours() % 12 || 12;
   const mm = d.getMinutes().toString().padStart(2, "0");
-  const ampm = h >= 12 ? "PM" : "AM";
-  h = h % 12 || 12;
+  const ampm = d.getHours() >= 12 ? "PM" : "AM";
   return `@ ${h}:${mm} ${ampm}`;
 }
 
@@ -118,15 +118,15 @@ const BASE_URL = 'https://api.lunchmoney.dev/v2';
 // time=custom range and include pending transactions.
 const WEB_APP_URL = "https://my.lunchmoney.app";
 
-// Period path segments (year, month, start day) from the displayed period;
-// empty until data loads
+// Period path segments (year, two-digit month, and zero-padded start day)
+// from the displayed period; empty until data loads
 function periodPathParts(data) {
   const start = data && data.periodStart ? parseIsoDate(data.periodStart) : null;
-  if (!start || isNaN(start)) return { year: "", month: "", day: 0 };
+  if (!start || isNaN(start)) return { year: "", month: "", day: "00" };
   return {
     year: String(start.getFullYear()),
     month: String(start.getMonth() + 1).padStart(2, "0"),
-    day: start.getDate()
+    day: String(start.getDate()).padStart(2, "0")
   };
 }
 
@@ -142,17 +142,25 @@ function periodParams(data) {
 // year/month path, a custom period (not starting on the 1st) adds its start day.
 function budgetTapUrl(data) {
   const p = periodPathParts(data);
-  if (!p.year) return WEB_APP_URL + "/budget";
-  return p.day === 1
+  if (!p.year) return appDeepLink(WEB_APP_URL + "/budget");
+  return appDeepLink(p.day === "01"
     ? `${WEB_APP_URL}/budget/${p.year}/${p.month}/`
-    : `${WEB_APP_URL}/budget/${p.year}/${p.month}/${String(p.day).padStart(2, "0")}`;
+    : `${WEB_APP_URL}/budget/${p.year}/${p.month}/${p.day}`);
 }
 
 // Shared builder: /transactions/YYYY/MM pinned to the displayed period
 function transactionPageUrl(data, filters) {
   const p = periodPathParts(data);
   const path = p.year ? `/transactions/${p.year}/${p.month}` : "/transactions";
-  return WEB_APP_URL + path + buildQueryString({ ...periodParams(data), ...filters });
+  return appDeepLink(WEB_APP_URL + path + buildQueryString({ ...periodParams(data), ...filters }));
+}
+
+// Reroutes a Lunch Money tap back into Scriptable: the target web-app URL is
+// wrapped in a scriptable:///run deep-link that runs this same script (under
+// its own name) with the target as the ?url= query parameter. The SETUP block
+// below then presents it in a Scriptable WebView instead of the browser.
+function appDeepLink(url) {
+  return `scriptable:///run?scriptName=${encodeURIComponent(Script.name())}&url=${encodeURIComponent(url)}`;
 }
 
 // The unreviewed list opens transactions filtered by unreviewed + pending
@@ -290,19 +298,16 @@ function headerHeight(config) {
 // edge. Shared by the small amount sizing and the medium review split.
 const WIDGET_INNER_WIDTH = WIDGET_SIZE.width - 20;
 
-// Medium widget's inner width; the widget build reads it while computing the
-// payee budget and the review split.
-const MEDIUM_INNER_WIDTH = WIDGET_INNER_WIDTH;
-
 // Medium review split: the metrics column keeps the smaller share so the
 // unreviewed list gets the rest (31% / 69% of the inner width). The two
 // weights are Scriptable layoutWeight units that sum to 100.
 const METRICS_WEIGHT = 31;
 const LIST_WEIGHT = 69;
 
-// The unreviewed list column's width: its share of the medium inner width.
-// Used when capping payee lengths so a name never runs into its amount.
-const LIST_COLUMN_WIDTH = (MEDIUM_INNER_WIDTH * LIST_WEIGHT) / (METRICS_WEIGHT + LIST_WEIGHT);
+// The unreviewed list column's width: its share of the inner width (the medium
+// widget's inner width is WIDGET_INNER_WIDTH). Used when capping payee lengths
+// so a name never runs into its amount.
+const LIST_COLUMN_WIDTH = (WIDGET_INNER_WIDTH * LIST_WEIGHT) / (METRICS_WEIGHT + LIST_WEIGHT);
 
 // --------------------------------------------------------------------------
 // Per-widget-family styling
@@ -338,8 +343,18 @@ const FAMILY_LAYOUTS = {
 };
 
 /****************************************************
-             SETUP - runs every time the widget loads
+             SETUP - runs every time the script runs
 *****************************************************/
+
+// Answers a widget tap that shipped a Scriptable deep-link (see appDeepLink):
+// when this run is inside the app (not a widget render) and carries a target
+// as the ?url= query parameter, present it in a WebView. Everything else —
+// in-app runs, widget renders, the API-key setup prompt — falls through to the
+// boot sequence below, exactly as it did with no tap target.
+const tapTarget = tappedTarget();
+if (tapTarget) {
+  await presentWebPage(tapTarget);
+}
 
 // Boot sequence: pull the API key, build the widget, then hand it to Scriptable
 const LM_ACCESS_TOKEN = await getApiKey();
@@ -347,6 +362,23 @@ const widget = await getWidget();
 
 Script.setWidget(widget);
 Script.complete();
+
+// The Lunch Money deep-link this run was tapped with, or "" when it wasn't a
+// widget tap. Scriptable supplies query arguments from a scriptable:///run URL
+// through args.queryParameters (args.shortcutParameter is filled by the
+// Shortcuts app, not by URL schemes), so appDeepLink ships the target as ?url=.
+function tappedTarget() {
+  if (config.runsInWidget) return "";
+  return String(args.queryParameters.url || args.queryParameters.parameter || args.shortcutParameter || args.parameter || "");
+}
+
+// Presents a tapped deep-link in a Scriptable WebView. present() resolves only
+// when the user closes the WebView, so the page stays on screen until then.
+async function presentWebPage(url) {
+  const webView = new WebView();
+  await webView.loadURL(url);
+  await webView.present();
+}
 
 /****************************************************
              WIDGET
@@ -406,10 +438,7 @@ function addErrorState(widget, message, config) {
 // Prefer a fresh cached copy, fetch from the API, then fall back to stale cache
 async function getAllData() {
   const fresh = readCache();
-  if (fresh) {
-    if (!fresh.lastUpdated) fresh.lastUpdated = cacheModTime();
-    return fresh;
-  }
+  if (fresh) return stampCacheTime(fresh);
 
   const data = await lunchMoneyLeftoverInfo();
 
@@ -421,8 +450,14 @@ async function getAllData() {
 
   // no connection: fall back to stale cache
   const stale = readCache(true);
-  if (stale && !stale.lastUpdated) stale.lastUpdated = cacheModTime();
-  return stale;
+  return stale ? stampCacheTime(stale) : null;
+}
+
+// Cache records predating the lastUpdated field get one retroactively from the
+// file's modification time, so the widget can always show when data was fetched
+function stampCacheTime(data) {
+  if (!data.lastUpdated) data.lastUpdated = cacheModTime();
+  return data;
 }
 
 /****************************************************
@@ -1353,3 +1388,5 @@ function addDetailRow(mainStack, label, value, detailFont) {
   valueText.textColor = regularColor;
   valueText.rightAlignText();
 }
+
+App.close();
