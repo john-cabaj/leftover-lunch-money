@@ -13,8 +13,12 @@
  *       point-based coordinates.                                              *
  *     - Row budgets are derived from the device's real widget container size  *
  *       (see widgetSizes) so lists never overflow the bottom edge.            *
- *     - Every tap anywhere on the widget opens the Lunch Money transactions    *
- *       view via a widget-level URL; layouts set no per-region tap targets.    *
+ *     - The METRICS table is the single source for what each money row        *
+ *       shows (label, value, color); layouts only choose order and size.      *
+ *     - Tap targets deep-link to the Lunch Money web app at the displayed     *
+ *       period (see AGENTS.md → Tap Navigation); per-region targets live on   *
+ *       stacks, and the widget-wide url is the fallback (transactions, or     *
+ *       budget on the stacked small widget).                                  *
  *                                                                             *
  ******************************************************************************/
 
@@ -107,9 +111,59 @@ const MAX_SIGNED_MONEY = "+$999,999.99";
 // --------------------------------------------------------------------------
 const BASE_URL = 'https://api.lunchmoney.dev/v2';
 
-// Tapping anywhere on the widget opens the Lunch Money transactions view,
-// regardless of which period the widget displays or which region is touched
-const TRANSACTIONS_URL = "lunchmoney://transactions";
+// Tap targets (web versions of the Lunch Money app deep links): the widget-wide
+// default opens the transactions list; the metrics and unreviewed regions
+// override it with their own targets. Budget deep-links by the displayed
+// period's start date, and the transactions views pin the same period with a
+// time=custom range and include pending transactions.
+const WEB_APP_URL = "https://my.lunchmoney.app";
+
+// Period path segments (year, month, start day) from the displayed period;
+// empty until data loads
+function periodPathParts(data) {
+  const start = data && data.periodStart ? parseIsoDate(data.periodStart) : null;
+  if (!start || isNaN(start)) return { year: "", month: "", day: 0 };
+  return {
+    year: String(start.getFullYear()),
+    month: String(start.getMonth() + 1).padStart(2, "0"),
+    day: start.getDate()
+  };
+}
+
+// Period filter query the web app uses to pin a custom time range
+function periodParams(data) {
+  return (data && data.periodStart && data.periodEnd)
+    ? { end_date: data.periodEnd, start_date: data.periodStart, time: "custom" }
+    : {};
+}
+
+// Tapping inflows/outflows/leftover opens the Budget page for the period.
+// Budget deep-links by the period start date: a monthly period anchors on the
+// year/month path, a custom period (not starting on the 1st) adds its start day.
+function budgetTapUrl(data) {
+  const p = periodPathParts(data);
+  if (!p.year) return WEB_APP_URL + "/budget";
+  return p.day === 1
+    ? `${WEB_APP_URL}/budget/${p.year}/${p.month}/`
+    : `${WEB_APP_URL}/budget/${p.year}/${p.month}/${String(p.day).padStart(2, "0")}`;
+}
+
+// Shared builder: /transactions/YYYY/MM pinned to the displayed period
+function transactionPageUrl(data, filters) {
+  const p = periodPathParts(data);
+  const path = p.year ? `/transactions/${p.year}/${p.month}` : "/transactions";
+  return WEB_APP_URL + path + buildQueryString({ ...periodParams(data), ...filters });
+}
+
+// The unreviewed list opens transactions filtered by unreviewed + pending
+function unreviewedTapUrl(data) {
+  return transactionPageUrl(data, { status: "unreviewed", include_pending: true, match: "all" });
+}
+
+// Any other tap opens the regular transactions view, pending included
+function transactionsTapUrl(data) {
+  return transactionPageUrl(data, { include_pending: true });
+}
 
 // Fields of the /summary totals breakdown that feed each side of the leftover.
 // Inflow counts every source. Outflow only sums the uncategorized buckets:
@@ -232,15 +286,23 @@ function headerHeight(config) {
   return headerBlockHeight(config) + (config.headerPad || 0);
 }
 
-// Inner content width for the medium widget: container width minus the 10pt
-// side padding. The widget build reads it while computing the payee budget
-// and the review split.
-const MEDIUM_INNER_WIDTH = WIDGET_SIZE.width - 20;
+// Inner content width: container width minus the 10pt side padding on each
+// edge. Shared by the small amount sizing and the medium review split.
+const WIDGET_INNER_WIDTH = WIDGET_SIZE.width - 20;
+
+// Medium widget's inner width; the widget build reads it while computing the
+// payee budget and the review split.
+const MEDIUM_INNER_WIDTH = WIDGET_INNER_WIDTH;
 
 // Medium review split: the metrics column keeps the smaller share so the
-// unreviewed list gets the rest (31% / 69% of the inner width).
+// unreviewed list gets the rest (31% / 69% of the inner width). The two
+// weights are Scriptable layoutWeight units that sum to 100.
 const METRICS_WEIGHT = 31;
 const LIST_WEIGHT = 69;
+
+// The unreviewed list column's width: its share of the medium inner width.
+// Used when capping payee lengths so a name never runs into its amount.
+const LIST_COLUMN_WIDTH = (MEDIUM_INNER_WIDTH * LIST_WEIGHT) / (METRICS_WEIGHT + LIST_WEIGHT);
 
 // --------------------------------------------------------------------------
 // Per-widget-family styling
@@ -251,8 +313,10 @@ const LIST_WEIGHT = 69;
 // fits the inner width AND the three caption+amount rows fit the widget height.
 const SMALL_CAPTION = 10;
 function smallAmountFont() {
-  const innerWidth = WIDGET_SIZE.width - 20; // 10pt side padding each edge
-  const byWidth = Math.floor(innerWidth / (MONO_GLYPH_WIDTH * MAX_MONEY.length));
+  // The limiting size is the smaller of the width bound (widest figure must
+  // fit the inner width) and the height bound (three rows must fit below the
+  // title and captions)
+  const byWidth = Math.floor(WIDGET_INNER_WIDTH / (MONO_GLYPH_WIDTH * MAX_MONEY.length));
   // Height left for the three amount rows after padding, title, gaps, and the
   // three captions; 2pt slack keeps the final row from clipping.
   const rowBudget = WIDGET_SIZE.small - PADDING_Y - lineHeight(TITLE_SIZE)
@@ -318,12 +382,12 @@ async function getWidget() {
     return widget;
   }
 
-  // Render the chosen family layout into a vertical stack; every tap opens the
-  // Lunch Money transactions view
+  // Render the chosen family layout into a vertical stack; anything not
+  // assigned a specific tap target falls through to the transactions view
   const mainStack = widget.addStack();
   mainStack.layoutVertically();
   mainStack.spacing = STACK_SPACING;
-  widget.url = TRANSACTIONS_URL;
+  widget.url = layoutConfig.layout === "stacked" ? budgetTapUrl(lunchMoneyData) : transactionsTapUrl(lunchMoneyData);
   renderWidget(mainStack, lunchMoneyData, layoutConfig);
 
   return widget;
@@ -421,6 +485,8 @@ async function lunchMoneyLeftoverInfo() {
     return {
       ...computeLeftover(summary, categories),
       periodLabel: periodLabelFor(settings, range),
+      periodStart: range.start_date,
+      periodEnd: range.end_date,
       unreviewed: unreviewed.rows,
       unreviewedStatus: unreviewed.status
     };
@@ -506,6 +572,11 @@ function indexCategories(categories) {
   return { info, names };
 }
 
+// Clean metadata lookup for a summary entry; unknown ids get an empty object
+function categoryInfo(info, entry) {
+  return info[entry.category_id] || {};
+}
+
 // Which categories carry budgets at the group level versus in their children,
 // so rows that merely mirror an already-budgeted parent/child stay out of the
 // sum (see shouldCountEntry)
@@ -513,7 +584,7 @@ function budgetGrouping(entries, info) {
   const groupedBudgeted = {};
   const groupHasBudgetedChildren = {};
   for (const entry of entries) {
-    const c = info[entry.category_id] || {};
+    const c = categoryInfo(info, entry);
     if (c.isGroup && entry.totals.budgeted != null) {
       groupedBudgeted[entry.category_id] = true;
     } else if (c.groupId != null && entry.totals.budgeted != null) {
@@ -558,7 +629,7 @@ function categoryRows(summary, categories) {
   // leftover are income and categories flagged "exclude from totals" — they
   // are outside the money in/out picture. Every other category counts.
   const entries = (summary.categories || []).filter((entry) => {
-    const cat = info[entry.category_id] || {};
+    const cat = categoryInfo(info, entry);
     return !cat.isIncome && !cat.excludeFromTotals;
   });
 
@@ -567,18 +638,19 @@ function categoryRows(summary, categories) {
 
   // Drop double-counted rows, then shape each survivor into a clean row object
   return entries
-    .filter((entry) => shouldCountEntry(entry, info[entry.category_id] || {}, groupedBudgeted, groupHasBudgetedChildren))
-    .map((entry) => shapeBudgetRow(entry, info[entry.category_id] || {}, names));
+    .filter((entry) => shouldCountEntry(entry, info, groupedBudgeted, groupHasBudgetedChildren))
+    .map((entry) => shapeBudgetRow(entry, categoryInfo(info, entry), names));
 }
 
 // A child row counts only when its group's budget is actually held at the
 // group level; a group row counts only when it carries its own budget and no
 // children do
 function shouldCountEntry(entry, info, groupedBudgeted, groupHasBudgetedChildren) {
-  if (info.groupId != null) {
-    return !(groupedBudgeted[info.groupId] && !groupHasBudgetedChildren[info.groupId]);
+  const cat = categoryInfo(info, entry);
+  if (cat.groupId != null) {
+    return !(groupedBudgeted[cat.groupId] && !groupHasBudgetedChildren[cat.groupId]);
   }
-  if (info.isGroup) {
+  if (cat.isGroup) {
     if (entry.totals.budgeted == null) return false;
     if (groupHasBudgetedChildren[entry.category_id]) return false;
   }
@@ -863,10 +935,11 @@ function withHeaderAndSpacer(mainStack, data, config, gap, body) {
 }
 
 // extraLarge body: Leftover amount plus Inflow / Outflow detail lines. Fed to
-// withHeaderAndSpacer like the review/overview bodies.
+// withHeaderAndSpacer like the review/overview bodies. Taps open Budget.
 function addBreakdownSection(parent, data, config) {
   const budget = parent.addStack();
   budget.layoutVertically();
+  budget.url = budgetTapUrl(data);
   addCaption(budget, "Leftover", config.caption);
   addAmount(budget, data.savings, { size: config.amount });
   budget.addSpacer(LIST_BODY_GAP);
@@ -875,12 +948,14 @@ function addBreakdownSection(parent, data, config) {
 
 // Inflow / Outflow / Leftover stacked vertically (small, in-app preview).
 // Labels hug the left edge while the monetary amounts right-justify, so the
-// cents line up across rows. The stack fills the whole widget.
+// cents line up across rows. The stack fills the whole widget so any tap opens
+// Budget.
 function addStackedMetrics(parent, data, config) {
   const stack = parent.addStack();
   stack.layoutVertically();
   stack.layoutWeight = 1;
   stack.topAlignContent();
+  stack.url = budgetTapUrl(data);
   addMetrics(stack, data, config, { amountSize: config.amount, alignRight: true, captionLeft: true });
 }
 
@@ -946,6 +1021,7 @@ function addMetricRow(parent, data, config) {
   for (const id of ["inflow", "leftover", "outflow"]) {
     addMetricColumn(row, getMetric(id), data, config);
   }
+  return row;
 }
 
 // One metric column; layoutWeight divides the row equally so it scales across sizes
@@ -961,12 +1037,14 @@ function addMetricColumn(parentRow, metric, data, config) {
 
 // Large layout: metric columns across the width plus the unreviewed list below
 function addOverview(mainStack, data, config) {
-  addMetricRow(mainStack, data, config);
+  const metricRow = addMetricRow(mainStack, data, config);
+  metricRow.url = budgetTapUrl(data);
   mainStack.addSpacer(LIST_BODY_GAP);
   addCaption(mainStack, "Unreviewed", config.caption);
   const list = mainStack.addStack();
   list.layoutVertically();
   list.layoutWeight = 1;
+  list.url = unreviewedTapUrl(data);
   addUnreviewedItems(list, data, config);
 }
 
@@ -978,6 +1056,7 @@ function addReviewSplit(mainStack, data, config) {
   const left = row.addStack();
   left.layoutVertically();
   left.layoutWeight = METRICS_WEIGHT;
+  left.url = budgetTapUrl(data);
   addMetrics(left, data, config, { amountSize: config.amount, alignLeft: true });
   left.addSpacer();
   left.addSpacer(LIST_BODY_GAP);
@@ -985,6 +1064,7 @@ function addReviewSplit(mainStack, data, config) {
   const right = row.addStack();
   right.layoutVertically();
   right.layoutWeight = LIST_WEIGHT;
+  right.url = unreviewedTapUrl(data);
   addCaption(right, "Unreviewed", config.caption, true);
   addUnreviewedItems(right, data, config);
   right.addSpacer();
@@ -1137,7 +1217,7 @@ function addTransactionRow(parent, t, config) {
 function mediumPayeeBudget(config) {
   const fs = detailFontSize(config);
   const amountW = textWidth(MAX_SIGNED_MONEY, fs);
-  const listW = (MEDIUM_INNER_WIDTH * LIST_WEIGHT) / (METRICS_WEIGHT + LIST_WEIGHT);
+  const listW = LIST_COLUMN_WIDTH;
   const room = Math.max(0, listW - INLINE_GAP - amountW);
   return Math.max(4, Math.floor(room / (MONO_GLYPH_WIDTH * fs)));
 }
@@ -1250,12 +1330,11 @@ function addAmount(parent, value, opts = {}) {
   }
 }
 
-// extraLarge: Leftover amount plus Inflow / Outflow detail lines
+// extraLarge: Leftover amount plus Inflow / Outflow detail lines. Leftover is
+// rendered separately by addBreakdownSection, so only the other rows go here.
 function addBreakdown(mainStack, data, detailFont) {
-  for (const metric of METRICS) {
-    if (metric.id === "leftover") continue;
-    addDetailRow(mainStack, metric.label, metric.value(data), detailFont);
-  }
+  METRICS.filter((metric) => metric.id !== "leftover")
+    .forEach((metric) => addDetailRow(mainStack, metric.label, metric.value(data), detailFont));
 }
 
 // Left-aligned label, right-aligned value on one line

@@ -42,7 +42,11 @@ Periods come from Lunch Money's `/budgets/settings` (anchor date, granularity, q
 
 ## Tap Navigation
 
-Tapping anywhere on the widget opens Lunch Money's transactions view (`lunchmoney://transactions`).
+Tap URLs point at the Lunch Money web app (`https://my.lunchmoney.app`) rather than the installed app, so taps open in the browser. Every target encodes the displayed period (via the period start date and a `time=custom` range), so taps open the same period the widget shows (the previous period when the `previous` parameter is set, the current period otherwise). Targets are set on stacks so each region deep-links where it should; the widget-wide url is the fallback (budget on the stacked small widget, the regular transactions view everywhere else):
+
+- Tapping Inflow / Outflow / Leftover opens Lunch Money's budget section for the period. Budget deep-links by period start date: a monthly period anchors on the year/month (`https://my.lunchmoney.app/budget/YYYY/MM/`), and a custom period that doesn't start on the 1st adds its start day (`https://my.lunchmoney.app/budget/YYYY/MM/DD`). The small (stacked) widget and the extraLarge breakdown use this budget target too.
+- Tapping the unreviewed transactions list opens transactions filtered by unreviewed + pending for the period (`https://my.lunchmoney.app/transactions/YYYY/MM?end_date=YYYY-MM-DD&match=all&start_date=YYYY-MM-DD&status=unreviewed&include_pending=true&time=custom`)
+- Tapping anywhere else opens the regular transactions list for the period, including pending transactions (`https://my.lunchmoney.app/transactions/YYYY/MM?end_date=YYYY-MM-DD&include_pending=true&start_date=YYYY-MM-DD&time=custom`)
 
 ## Layout Conventions
 
@@ -60,11 +64,14 @@ Tapping anywhere on the widget opens Lunch Money's transactions view (`lunchmone
 ## Development Notes
 
 - Verify syntax locally with `node --check index.js` — there is no lint or test suite
-- The leftover math can be exercised in plain Node: extract the section of `index.js` between `function indexCategories(` and `function formatMoney(` and run it against the mock API. `index.js` cannot be required directly because it evaluates Scriptable globals (e.g. `new Font`) at load.
+- The widget file cannot be required directly because it evaluates Scriptable globals (e.g. `new Font`) at load. Pure logic can instead be extracted and run in plain Node: the leftover math between `function indexCategories(` and `function formatMoney(` (exercised against the mock API), the tap-URL builders (`periodPathParts` … `transactionsTapUrl`), and the calendar helpers (`addBudgetPeriod` … `periodLabelFor`).
 - Mock API behavior (https://mock.lunchmoney.dev/v2): `/categories` is stable across calls, but `/summary` returns varying data on every request and requires `start_date`/`end_date` (400 otherwise). Verify with relative invariants (e.g. outflow rows + uncategorized buckets = total outflow), not fixed expected numbers.
 - Functional behavior must be verified on an iOS device via Scriptable (widget families: small / medium / large / extraLarge)
 - Keep every size/measurement a named constant; row budgets derive from the real widget container size so lists never overflow
 - `FAMILY_LAYOUTS` uses one `amount` size for all three money rows; layouts pick their own row ORDER, so don't reintroduce per-metric-size duplication
+- `METRICS` is the single source for the three money rows (label, value closure, sign color); `addMetrics`, `addMetricRow`, and `addBreakdown` all render from it, so layouts only choose row order and one `amount` size. Leftover's color is decided in `addAmount` (green when positive, red when negative)
+- Inner widths come from `WIDGET_INNER_WIDTH` (container width minus the 10pt side padding). The medium review split uses `METRICS_WEIGHT`/`LIST_WEIGHT` (31/69 — layoutWeight units summing to 100) and `LIST_COLUMN_WIDTH` for the list column
+- Secondary text derives from one size source, `detailFontSize(config[, fallback])`; `timestampFont` and the failed-unreviewed hint subtract from it, so a size tweak lands everywhere
 
 ## Git Workflow
 
