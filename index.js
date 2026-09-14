@@ -67,9 +67,9 @@ function boldFont(size) { return new Font(FONT_BOLD, size); }
 function monoFont(size) { return new Font(MONO_FONT_NAME, size); }
 function monoBoldFont(size) { return new Font(MONO_FONT_BOLD, size); }
 
-// Monospace (Menlo) advance width ≈ 0.6em per glyph; textWidth and the width
-// formulas below multiply this by the glyph count at a given point size.
-// Making the 0.6 a named constant keeps every width estimate derived from it.
+// Monospace (Menlo) advance width ≈ 0.6em per glyph. A named constant so that
+// every width estimate (charWidth → textWidth → the payee/amount budgets)
+// derives from a single source.
 const MONO_GLYPH_WIDTH = 0.6;
 
 // "@ H:MM AM/PM" from a timestamp
@@ -96,6 +96,10 @@ const METRICS = [
   { id: "leftover", label: "Leftover", value: (d) => d.savings,         color: undefined }
 ];
 function getMetric(id) { return METRICS.find((m) => m.id === id); }
+
+// The overview layout renders the three money rows as three equal columns in
+// this order — Leftover sits between Inflow and Outflow, unlike METRICS.
+const OVERVIEW_METRIC_ORDER = ["inflow", "leftover", "outflow"];
 
 // Widest monetary strings the layout budgets around: the 10-char figure every
 // amount pads/right-justifies to, and the signed worst case a transaction row
@@ -213,14 +217,11 @@ const MONTHS = ["January", "February", "March", "April", "May", "June", "July", 
 // Geometry
 // --------------------------------------------------------------------------
 
-// Monospace line box ≈ 1.15× the point size; lineHeight under-reserves height
-// from this so the row budgets fit the last row.
-const LINE_HEIGHT_FACTOR = 1.15;
-
 // Approximate line height for a given font size. The monospace line box is
-// tight (≈LINE_HEIGHT_FACTOR× the point size), so this deliberately
+// tight (≈LINE_HEIGHT_FACTOR× the point size), so lineHeight deliberately
 // under-reserves the height the layout needs, letting the row budgets fit the
 // last row.
+const LINE_HEIGHT_FACTOR = 1.15;
 function lineHeight(size) { return Math.ceil(size * LINE_HEIGHT_FACTOR); }
 
 // Widget container sizes (pt): [width, small, medium, large] for the widget
@@ -321,7 +322,7 @@ function smallAmountFont() {
   // The limiting size is the smaller of the width bound (widest figure must
   // fit the inner width) and the height bound (three rows must fit below the
   // title and captions)
-  const byWidth = Math.floor(WIDGET_INNER_WIDTH / (MONO_GLYPH_WIDTH * MAX_MONEY.length));
+  const byWidth = Math.floor(WIDGET_INNER_WIDTH / textWidth(MAX_MONEY, 1));
   // Height left for the three amount rows after padding, title, gaps, and the
   // three captions; 2pt slack keeps the final row from clipping.
   const rowBudget = WIDGET_SIZE.small - PADDING_Y - lineHeight(TITLE_SIZE)
@@ -346,38 +347,124 @@ const FAMILY_LAYOUTS = {
              SETUP - runs every time the script runs
 *****************************************************/
 
-// Answers a widget tap that shipped a Scriptable deep-link (see appDeepLink):
-// when this run is inside the app (not a widget render) and carries a target
-// as the ?url= query parameter, present it in a WebView. Everything else —
-// in-app runs, widget renders, the API-key setup prompt — falls through to the
-// boot sequence below, exactly as it did with no tap target.
-const tapTarget = tappedTarget();
+// A widget tap ships a Scriptable deep-link (see appDeepLink) with the target
+// as the ?url= query parameter and this script runs in the app to show it in a
+// WebView. A tap's only job is to show that page, so after the WebView closes
+// the run ends there. A tap that lost its ?url= argument in transit still opens
+// something useful (the plain transactions view) rather than booting. Widget
+// renders, in-app previews, and the API-key setup prompt have no tap target
+// and boot exactly as before. Only a presented tap page closes the app (to drop
+// back home after it's dismissed); a boot run that leaves the user in the app
+// is fine — and a cold-started tap whose URL arguments arrived late or not at
+// all must never close the app out from under the user.
+// Module-scoped so the data layer (lunchMoneyLeftoverInfo / sendLunchMoneyRequest)
+// can read it; assigned in the boot sequence below.
+let LM_ACCESS_TOKEN = null;
+
+// The deep-link to present for this run, or "" when it boots. Scriptable can
+// inject URL-scheme arguments a tick after a cold start; the one-beat wait
+// (nextTick) stops a late-arriving tap from being misread as a boot, and gives
+// a cold-launched WebView presentation a settled UI to present from.
+async function resolveTap() {
+  if (config.runsInWidget) return "";
+  await nextTick();
+  const target = tappedTarget();
+  if (target) return target;
+  if (cameFromTap()) {
+    writeDiagnostics("tap ran without a url argument; opening the plain transactions view");
+    return WEB_APP_URL + "/transactions";
+  }
+  return "";
+}
+
+// Waits one event-loop turn so a cold-starting Scriptable has a moment to finish
+// injecting URL-scheme arguments. The delay uses the native Timer class because
+// Scriptable's runtime is bare JavaScriptCore and exposes no setTimeout global.
+function nextTick() {
+  return new Promise((resolve) => {
+    const tick = Timer.schedule(0.01, false, () => {
+      tick.invalidate();
+      resolve();
+    });
+  });
+}
+
+const tapTarget = await resolveTap();
 if (tapTarget) {
   await presentWebPage(tapTarget);
+  // present() resolves only when the user closes the WebView, so this App.close
+  // (Scriptable's undocumented return-to-home-screen) fires only after a tapped
+  // page was dismissed — never out from under it. Widget renders never reach
+  // this branch.
+  App.close();
+} else {
+  // Boot sequence: pull the API key, build the widget, then hand it to
+  // Scriptable. Intentionally no App.close(): closing here was what sent a
+  // cold-started tap whose URL arguments arrived late (or not at all) straight
+  // back to the home screen.
+  LM_ACCESS_TOKEN = await getApiKey();
+  const widget = await getWidget();
+
+  Script.setWidget(widget);
+  Script.complete();
 }
-
-// Boot sequence: pull the API key, build the widget, then hand it to Scriptable
-const LM_ACCESS_TOKEN = await getApiKey();
-const widget = await getWidget();
-
-Script.setWidget(widget);
-Script.complete();
 
 // The Lunch Money deep-link this run was tapped with, or "" when it wasn't a
-// widget tap. Scriptable supplies query arguments from a scriptable:///run URL
-// through args.queryParameters (args.shortcutParameter is filled by the
-// Shortcuts app, not by URL schemes), so appDeepLink ships the target as ?url=.
+// widget tap. appDeepLink ships the target as the ?url= query parameter of a
+// scriptable:///run URL, and Scriptable exposes those query arguments through
+// args.queryParameters (args.shortcutParameter is filled by the Shortcuts app,
+// not by URL schemes). Only a real http(s) target counts: anything else (empty,
+// a script parameter, junk) means this run isn't a tap and falls through to the
+// boot sequence.
 function tappedTarget() {
   if (config.runsInWidget) return "";
-  return String(args.queryParameters.url || args.queryParameters.parameter || args.shortcutParameter || args.parameter || "");
+  const value = String(args.queryParameters.url || "") || launchFallbackText();
+  return isHttpUrl(value) ? value : "";
 }
 
-// Presents a tapped deep-link in a Scriptable WebView. present() resolves only
-// when the user closes the WebView, so the page stays on screen until then.
+// The launch argument Scriptable fills when a run's ?url= query parameter is
+// missing: its parameter-less URL-scheme / Shortcuts inputs.
+function launchFallbackText() {
+  return String(args.queryParameters.parameter || args.shortcutParameter || args.parameter || "");
+}
+
+function isHttpUrl(value) {
+  return /^https?:\/\//i.test(value);
+}
+
+// True when any URL-scheme / Shortcuts argument reached this run — i.e. it was
+// launched from outside (a widget tap whose ?url= may have been lost in
+// transit) rather than run from inside the app or the widget extension.
+function cameFromTap() {
+  if (config.runsInWidget) return false;
+  return hasLaunchArguments();
+}
+
+// True when any of the sources Scriptable fills for externally-launched runs
+// carried a value (args.queryParameters or the Shortcuts parameter).
+function hasLaunchArguments() {
+  const params = args.queryParameters || {};
+  return Object.keys(params).length > 0 || !!args.shortcutParameter || !!args.parameter;
+}
+
+// Presents a tapped deep-link in a Scriptable WebView. The full-screen modal
+// (present(true), not the non-fullscreen default sheet) keeps the view up
+// through Scriptable's launch transition so the page isn't dismissed out from
+// under the user. The load is kicked off but not awaited: awaiting it up front
+// would delay presentation until the page finishes (and hang forever on a page
+// that never finishes), while presenting first lets the page stream in behind
+// an open view. present() resolves only when the user closes the WebView, so
+// the page stays on screen until then. A load error is logged, and a failed
+// presentation falls back to Safari so the tap still lands.
 async function presentWebPage(url) {
-  const webView = new WebView();
-  await webView.loadURL(url);
-  await webView.present();
+  try {
+    const webView = new WebView();
+    webView.loadURL(url).catch((e) => writeDiagnostics("tap webview load failed: " + e));
+    await webView.present(true);
+  } catch (e) {
+    writeDiagnostics("tap webview present failed: " + e);
+    Safari.open(url);
+  }
 }
 
 /****************************************************
@@ -504,7 +591,7 @@ async function lunchMoneyLeftoverInfo() {
     return null;
   }
   try {
-    const settings = await sendLunchMoneyRequest(`${BASE_URL}/budgets/settings`);
+    const settings = await sendLunchMoneyRequest('/budgets/settings');
     // Prefer the configured budget period; fall back to the calendar month.
     // "previous" shows the prior period instead of the current one
     const range = getPeriodRange(settings, SHOW_PREVIOUS_PERIOD);
@@ -513,8 +600,8 @@ async function lunchMoneyLeftoverInfo() {
     // the leftover, so budget-excluded spending must still count as outflow.
     const params = { ...range, include_totals: true, include_rollover_pool: true, include_exclude_from_budgets: true };
     const [summary, categories, unreviewed] = await Promise.all([
-      sendLunchMoneyRequest(`${BASE_URL}/summary`, params),
-      sendLunchMoneyRequest(`${BASE_URL}/categories`),
+      sendLunchMoneyRequest('/summary', params),
+      sendLunchMoneyRequest('/categories'),
       fetchUnreviewedTransactions(range)
     ]);
     return {
@@ -537,7 +624,7 @@ async function lunchMoneyLeftoverInfo() {
 // to review) apart from a failed fetch (nothing known about the list).
 async function fetchUnreviewedTransactions(range) {
   try {
-    const data = await sendLunchMoneyRequest(`${BASE_URL}/transactions`, {
+    const data = await sendLunchMoneyRequest('/transactions', {
       ...range,
       status: "unreviewed",
       include_pending: true
@@ -565,13 +652,14 @@ async function fetchUnreviewedTransactions(range) {
   }
 }
 
-// GET request with the API key as a Bearer token; URL-encodes query params
-function sendLunchMoneyRequest(url, params = {}) {
+// GET request against the Lunch Money API: path is relative to BASE_URL (e.g.
+// "/summary"). Adds the API key as a Bearer token and URL-encodes query params.
+function sendLunchMoneyRequest(path, params = {}) {
   const headers = {
     'Authorization': LM_ACCESS_TOKEN.includes("Bearer") ? LM_ACCESS_TOKEN : `Bearer ${LM_ACCESS_TOKEN}`,
     'Content-Type': 'application/json'
   };
-  const request = new Request(url + buildQueryString(params));
+  const request = new Request(BASE_URL + path + buildQueryString(params));
   request.headers = headers;
   request.method = 'GET';
   return request.loadJSON();
@@ -630,9 +718,10 @@ function budgetGrouping(entries, info) {
 }
 
 // Shapes one summary entry into a clean budget row { name, initialBudget,
-// activity, rollover, available, contribution }. The contribution is derived
-// from the same figure the row already computes.
-function shapeBudgetRow(entry, info, names) {
+// activity, rollover, available, contribution }. The category name comes from
+// the indexed names map; the contribution is derived from the same figure the
+// row already computes.
+function shapeBudgetRow(entry, names) {
   const initialBudget = entry.totals.budgeted;
   const activity = (entry.totals.other_activity || 0) + (entry.totals.recurring_activity || 0);
   const rollover = entry.rollover_pool ? (entry.rollover_pool.budgeted_to_base || 0) : 0;
@@ -674,7 +763,7 @@ function categoryRows(summary, categories) {
   // Drop double-counted rows, then shape each survivor into a clean row object
   return entries
     .filter((entry) => shouldCountEntry(entry, info, groupedBudgeted, groupHasBudgetedChildren))
-    .map((entry) => shapeBudgetRow(entry, categoryInfo(info, entry), names));
+    .map((entry) => shapeBudgetRow(entry, names));
 }
 
 // A child row counts only when its group's budget is actually held at the
@@ -732,10 +821,16 @@ function formatMoney(value) {
   return (value < 0 ? "-" : "") + "$" + grouped + "." + dec;
 }
 
-// Monospace fonts (Menlo) use an advance width ≈ MONO_GLYPH_WIDTH em, so
-// glyph-count × MONO_GLYPH_WIDTH × size
+// Width of one monospace glyph at a given point size — Menlo's advance width is
+// ≈ MONO_GLYPH_WIDTH em, so MONO_GLYPH_WIDTH × size. Every width estimate
+// below derives from this one source.
+function charWidth(size) {
+  return MONO_GLYPH_WIDTH * size;
+}
+
+// Approximate width of a monospace string: glyph count × charWidth(size)
 function textWidth(str, size) {
-  return String(str).length * MONO_GLYPH_WIDTH * size;
+  return String(str).length * charWidth(size);
 }
 
 // YYYY-MM-DD for the API
@@ -1051,9 +1146,9 @@ function addBrandTitle(parent, data, config) {
 function addMetricRow(parent, data, config) {
   const row = parent.addStack();
   row.layoutHorizontally();
-  // Column order varies from the METRICS table: in this split layout Leftover
-  // sits between Inflow and Outflow
-  for (const id of ["inflow", "leftover", "outflow"]) {
+  // Leftover sits between Inflow and Outflow in this split layout — an order
+  // that differs from the METRICS table (see OVERVIEW_METRIC_ORDER).
+  for (const id of OVERVIEW_METRIC_ORDER) {
     addMetricColumn(row, getMetric(id), data, config);
   }
   return row;
@@ -1075,12 +1170,12 @@ function addOverview(mainStack, data, config) {
   const metricRow = addMetricRow(mainStack, data, config);
   metricRow.url = budgetTapUrl(data);
   mainStack.addSpacer(LIST_BODY_GAP);
-  addCaption(mainStack, "Unreviewed", config.caption);
-  const list = mainStack.addStack();
-  list.layoutVertically();
-  list.layoutWeight = 1;
-  list.url = unreviewedTapUrl(data);
-  addUnreviewedItems(list, data, config);
+  const unreviewed = mainStack.addStack();
+  unreviewed.layoutVertically();
+  unreviewed.spacing = STACK_SPACING;
+  unreviewed.url = unreviewedTapUrl(data);
+  addCaption(unreviewed, "Unreviewed", config.caption);
+  addUnreviewedItems(unreviewed, data, config);
 }
 
 // Medium layout: metrics top-aligned on the left, unreviewed transactions on the right
@@ -1099,9 +1194,12 @@ function addReviewSplit(mainStack, data, config) {
   const right = row.addStack();
   right.layoutVertically();
   right.layoutWeight = LIST_WEIGHT;
-  right.url = unreviewedTapUrl(data);
-  addCaption(right, "Unreviewed", config.caption, true);
-  addUnreviewedItems(right, data, config);
+  const caption = addCaption(right, "Unreviewed", config.caption, true);
+  caption.row.url = unreviewedTapUrl(data);
+  const list = right.addStack();
+  list.layoutVertically();
+  list.url = unreviewedTapUrl(data);
+  addUnreviewedItems(list, data, config);
   right.addSpacer();
 }
 
@@ -1195,13 +1293,19 @@ function unreviewedFont(config) {
   return font(detailFontSize(config));
 }
 
-// Font for the title-line "@ H:MM AM/PM" timestamp: a couple of sizes below
-// the unreviewed text (and so a bit smaller than the period label above it).
-// Small has no detailFont of its own, so it falls back to medium's detail size
-// and matches the medium timestamp exactly rather than dropping to the 7pt
-// floor. Same floor as the failed-unreviewed hint so it stays readable.
+// Secondary helper-text size: one point below the layout's detail text, floored
+// at 7pt so it stays readable. Used by the title timestamp and the
+// failed-unreviewed hint. The fallback sizes detailFontSize when the layout has
+// no detailFont of its own: small feeds 11 (medium's detail size) for the
+// timestamp — so it matches the medium timestamp rather than hitting the 7pt
+// floor — and defaults to 9 for the failed hint.
+function smallDetailSize(config, fallback) {
+  return Math.max(7, detailFontSize(config, fallback) - 2);
+}
+
+// Font for the title-line "@ H:MM AM/PM" timestamp
 function timestampFont(config) {
-  return font(Math.max(7, detailFontSize(config, 11) - 2));
+  return font(smallDetailSize(config, 11));
 }
 
 // Unreviewed section fallback: a plain "nothing to review" notice matching the
@@ -1211,7 +1315,7 @@ function addUnreviewedEmpty(parent, status, config) {
   const failed = status === "failed";
   const text = failed ? "Couldn't load unreviewed" : "No unreviewed transactions";
   const empty = parent.addText(text);
-  empty.font = failed ? font(Math.max(7, detailFontSize(config) - 2)) : unreviewedFont(config);
+  empty.font = failed ? font(smallDetailSize(config)) : unreviewedFont(config);
   empty.textColor = regularColor;
   empty.textOpacity = failed ? 0.8 : 0.6;
   empty.lineLimit = 3;
@@ -1254,7 +1358,7 @@ function mediumPayeeBudget(config) {
   const amountW = textWidth(MAX_SIGNED_MONEY, fs);
   const listW = LIST_COLUMN_WIDTH;
   const room = Math.max(0, listW - INLINE_GAP - amountW);
-  return Math.max(4, Math.floor(room / (MONO_GLYPH_WIDTH * fs)));
+  return Math.max(4, Math.floor(room / charWidth(fs)));
 }
 
 // Truncate to max characters, hinting overflow with an ellipsis
@@ -1329,7 +1433,7 @@ function addTextRow(parent, text, options) {
 
 // Bold yellow label (e.g. "Inflow", "Leftover"); centered unless alignLeft is set
 function addCaption(parent, text, size, alignLeft) {
-  addTextRow(parent, text, {
+  return addTextRow(parent, text, {
     font: boldFont(size),
     color: brandYellow,
     alignLeft
@@ -1388,5 +1492,3 @@ function addDetailRow(mainStack, label, value, detailFont) {
   valueText.textColor = regularColor;
   valueText.rightAlignText();
 }
-
-App.close();
