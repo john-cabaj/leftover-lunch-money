@@ -1,11 +1,12 @@
 /*******************************************************************************
  *                                                                             *
- *   LUNCH MONEY WIDGET — a Scriptable home-screen widget.                    *
+ *   LUNCH MONEY WIDGET — a Scriptable home-screen widget.                     *
  *                                                                             *
  *   Pulls the current budget period’s totals and unreviewed transactions      *
  *   or, with the “previous” widget parameter, the prior period — from the     *
  *   Lunch Money API, computes the period leftover, and renders it as a        *
- *   family-specific layout (small / medium / large / extraLarge).             *
+ *   family-specific layout (small / medium / large / extraLarge, plus the     *
+ *   lock-screen accessory rectangular / circular / inline widgets).           *
  *                                                                             *
  *   Layout rules of the road:                                                 *
  *     - Every size/measurement used to lay anything out is a named constant   *
@@ -16,7 +17,7 @@
  *     - The METRICS table is the single source for what each money row        *
  *       shows (label, value, color); layouts only choose order and size.      *
  *     - Tap targets deep-link to the Lunch Money web app at the displayed     *
- *       period (see AGENTS.md → Tap Navigation) and are shown inside           *
+ *       period (see AGENTS.md → Tap Navigation) and are shown inside          *
  *       Scriptable in a WebView — never exported to the browser. Per-region   *
  *       targets live on stacks; the widget-wide url is the fallback           *
  *       (transactions, or budget on the stacked small widget).                *
@@ -251,14 +252,52 @@ function widgetSizes() {
 }
 
 const WIDGET_SIZE = widgetSizes();
+
+// Lock-screen accessory sizes (pt) keyed by the longest device screen side —
+// the same keys as widgetSizes, per Apple's HIG for iOS lock-screen widgets.
+// Each spec is [rectangularW, rectangularH, circular]; unknown devices (the
+// SE 1st gen — no lock-screen widgets — and iPads) fall back to the X-class
+// rectangular accessory.
+const ACCESSORY_SPECS = {
+  932: [172, 76, 76], 926: [172, 76, 76],                       // 14/15/16 Pro Max, 13 Pro Max
+  896: [160, 72, 76],                                           // XR, 11, XS Max, 11 Pro Max
+  874: [160, 72, 72], 852: [160, 72, 72], 844: [160, 72, 72],   // 16/15/14/13/12 Pro family
+  812: [157, 72, 72], 780: [157, 72, 72],                       // X, XS, 11 Pro, 12/13 mini, 360x780
+  736: [170, 76, 76],                                           // 7/8 Plus
+  667: [153, 68, 68]                                            // 7/8, SE 2nd/3rd gen
+};
+function accessorySize() {
+  const h = Math.max(Device.screenSize().width, Device.screenSize().height);
+  const spec = ACCESSORY_SPECS[h] || ACCESSORY_SPECS[812];
+  return { rectW: spec[0], rectH: spec[1], circular: spec[2] };
+}
+const ACCESSORY_SIZE = accessorySize();
+
 // Height budget per layout. review keeps +2pt slack so the last row isn't
-// clipped on the taller (~170pt) medium widgets.
-const WIDGET_HEIGHTS = { review: WIDGET_SIZE.medium + 2, overview: WIDGET_SIZE.large };
+// clipped on the taller (~170pt) medium widgets; the rectangular accessory
+// budgets against its own device height (a lock-screen element, so the home
+// screens' WIDGET_SIZE never applies).
+const WIDGET_HEIGHTS = {
+  review: WIDGET_SIZE.medium + 2,
+  overview: WIDGET_SIZE.large,
+  accessoryRectangular: ACCESSORY_SIZE.rectH
+};
 const PADDING_Y = 28;      // setPadding(14, 10, 14, 10)
 const TOP_PAD = 14;        // default top inset; small drops to topPad below
 const STACK_SPACING = 2;   // mainStack.spacing
 const ROW_GAP = 1;         // trailing gap after each unreviewed row; keep in sync
                            // with rowFitHeight so the list budget matches rendering
+
+// Rectangular lock-screen accessory layout: tight margins — lock screen widgets
+// use smaller insets than home-screen widgets — plus the gap between the
+// Leftover line and the Unreviewed caption. Shared by addAccessoryRectangular
+// (where the spacer is rendered) and listHeightBudget (which subtracts the same
+// points to fit rows), so a tweak always lands in both places together.
+const ACC_PAD_TOP = 4;
+const ACC_PAD_BOTTOM = 4;
+const ACC_PAD_SIDE = 6;
+const ACC_HEADER_GAP = 2;  // accessory: Leftover line → "Unreviewed" caption
+const ACC_SLACK = 2;       // accessory: reserved so the last row never touches the edge
 
 // Gaps the render inserts between the header and the body, and inside the
 // overview body. Shared by BOTH renderWidget/addOverview (where the spacer is
@@ -281,8 +320,16 @@ const METRIC_LIST_GAP = 24; // review: metrics column → unreviewed list
 const TITLE_SIZE = 12;
 const PERIOD_SIZE = 11;
 function headerBlockGap(config) {
-  return (config && config.headerGap) != null ? config.headerGap : STACK_SPACING;
+  return pad(config, "headerGap", STACK_SPACING);
 }
+
+// Resolves a per-layout config value, falling back when the layout doesn't set
+// it (or is absent). Used for the accessory margins (each lock-screen family
+// only lists the insets it actually customizes) and the header gap.
+function pad(config, key, fallback) {
+  return config && config[key] != null ? config[key] : fallback;
+}
+
 function headerBlockHeight(config) {
   return lineHeight(TITLE_SIZE) + headerBlockGap(config) + lineHeight(PERIOD_SIZE);
 }
@@ -340,6 +387,14 @@ const FAMILY_LAYOUTS = {
   medium:     { layout: "review", caption: 13, amount: 30, detailFont: 11, payeeLen: 28, headerPad: 6, headerGap: 0 },
   large:      { layout: "overview", caption: 14, amount: 30, detailFont: 12, payeeLen: 30 },
   extraLarge: { layout: "breakdown", caption: 15, amount: 46, detailFont: 11 },
+  // Lock-screen accessories: no gradient background, no header, tighter margins
+  // (each family only lists the insets it overrides; the tap URL is set
+  // best-effort on all families in getWidget). The rectangular widget shows the
+  // Leftover line + the unreviewed list; the circular one shows a "Leftover"
+  // caption above the amount; the inline one shows just the Leftover amount.
+  accessoryRectangular: { layout: "accessoryRectangular", caption: 10, amount: 10, detailFont: 9, accessory: true, padTop: ACC_PAD_TOP, padBottom: ACC_PAD_BOTTOM, padSide: ACC_PAD_SIDE },
+  accessoryCircular: { layout: "accessoryCircular", caption: 9, amount: 13, accessory: true, padTop: 0, padBottom: 0, padSide: 0 },
+  accessoryInline: { layout: "accessoryInline", accessory: true, padTop: 0, padBottom: 0, padSide: 8 },
   undefined:  smallLayout
 };
 
@@ -350,13 +405,16 @@ const FAMILY_LAYOUTS = {
 // A widget tap ships a Scriptable deep-link (see appDeepLink) with the target
 // as the ?url= query parameter and this script runs in the app to show it in a
 // WebView. A tap's only job is to show that page, so after the WebView closes
-// the run ends there. A tap that lost its ?url= argument in transit still opens
-// something useful (the plain transactions view) rather than booting. Widget
-// renders, in-app previews, and the API-key setup prompt have no tap target
-// and boot exactly as before. Only a presented tap page closes the app (to drop
-// back home after it's dismissed); a boot run that leaves the user in the app
-// is fine — and a cold-started tap whose URL arguments arrived late or not at
-// all must never close the app out from under the user.
+// the run ends there. A tap that lost its ?url= argument in transit — or a
+// lock-screen accessory tap, whose configured "Open URL" can only carry a
+// scriptable:///run deep-link — still opens something useful (the same
+// transactions view the home-screen fallback opens, period included) rather
+// than booting. Widget renders, in-app previews, and the API-key setup prompt
+// have no tap target and boot exactly as before. Only a presented tap page
+// closes the app (to drop back home after it's dismissed); a boot run that
+// leaves the user in the app is fine — and a cold-started tap whose URL
+// arguments arrived late or not at all must never close the app out from under
+// the user.
 // Module-scoped so the data layer (lunchMoneyLeftoverInfo / sendLunchMoneyRequest)
 // can read it; assigned in the boot sequence below.
 let LM_ACCESS_TOKEN = null;
@@ -371,8 +429,8 @@ async function resolveTap() {
   const target = tappedTarget();
   if (target) return target;
   if (cameFromTap()) {
-    writeDiagnostics("tap ran without a url argument; opening the plain transactions view");
-    return WEB_APP_URL + "/transactions";
+    writeDiagnostics("tap ran without a url argument; opening the fallback transactions view");
+    return fallbackTapUrl();
   }
   return "";
 }
@@ -447,6 +505,37 @@ function hasLaunchArguments() {
   return Object.keys(params).length > 0 || !!args.shortcutParameter || !!args.parameter;
 }
 
+// A tap with no target URL — how lock-screen accessory widgets arrive. Their
+// per-widget "When Interacting: Open URL" can only carry a scriptable:///run
+// deep-link (no ?url=), so the tap comes in as url-less but real. Open the SAME
+// fallback the home screens use (transactionsTapUrl, the widget-wide .url target):
+// the displayed period is looked up live so a "previous" accessory lands on the
+// period it shows, not the current one. A missing key or failed fetch degrades
+// to the plain transactions view rather than booting.
+async function fallbackTapUrl() {
+  if (!Keychain.contains(API_KEY)) return WEB_APP_URL + "/transactions";
+  try {
+    LM_ACCESS_TOKEN = Keychain.get(API_KEY);
+    const settings = await sendLunchMoneyRequest("/budgets/settings");
+    const range = getPeriodRange(settings, tapShowsPreviousPeriod());
+    writeDiagnostics("tap fallback: transactions for " + range.start_date + ".." + range.end_date);
+    return transactionsTapUrl({ periodStart: range.start_date, periodEnd: range.end_date });
+  } catch (e) {
+    writeDiagnostics("tap fallback period lookup failed: " + e);
+    return WEB_APP_URL + "/transactions";
+  }
+}
+
+// The "previous" flag for a url-less tap comes from the parameter the configured
+// Open URL carries (scriptable:///run?scriptName=…&parameter=previous), falling
+// back to the widget parameter Scriptable may have passed through. Lock-screen
+// taps reach us via the URL scheme, so args.widgetParameter is normally empty
+// and the configured parameter is the source of truth.
+function tapShowsPreviousPeriod() {
+  const p = String(args.queryParameters.parameter || args.widgetParameter || "").trim().toLowerCase();
+  return p === "previous";
+}
+
 // Presents a tapped deep-link in a Scriptable WebView. The full-screen modal
 // (present(true), not the non-fullscreen default sheet) keeps the view up
 // through Scriptable's launch transition so the page isn't dismissed out from
@@ -478,8 +567,17 @@ async function getWidget() {
 
   const widgetFamily = config.widgetFamily;
   const layoutConfig = FAMILY_LAYOUTS[widgetFamily] || FAMILY_LAYOUTS.undefined;
-  widget.setPadding(layoutConfig.topPad || TOP_PAD, 10, 14, 10);
-  widget.backgroundGradient = getLinearGradient(COLORS.bg1, COLORS.bg2);
+  const accessory = !!layoutConfig.accessory;
+  // Lock-screen accessories render on a translucent widget backdrop (no gradient)
+  // and use the smaller lock-screen margins.
+  const padSide = pad(layoutConfig, "padSide", 10);
+  widget.setPadding(
+    pad(layoutConfig, "padTop", layoutConfig.topPad || TOP_PAD),
+    padSide,
+    pad(layoutConfig, "padBottom", 14),
+    padSide
+  );
+  if (!accessory) widget.backgroundGradient = getLinearGradient(COLORS.bg1, COLORS.bg2);
 
   let lunchMoneyData = null;
   let errorMessage = null;
@@ -502,10 +600,17 @@ async function getWidget() {
   }
 
   // Render the chosen family layout into a vertical stack; anything not
-  // assigned a specific tap target falls through to the transactions view
+  // assigned a specific tap target falls through to the transactions view.
+  // Accessory layouts use explicit spacers, so the stack spacing drops to zero.
   const mainStack = widget.addStack();
   mainStack.layoutVertically();
-  mainStack.spacing = STACK_SPACING;
+  mainStack.spacing = accessory ? 0 : STACK_SPACING;
+  // The widget-wide tap URL (the fallback when no region was hit). Set for the
+  // accessory families too: Scriptable's documented behavior ignores .url on
+  // lock-screen widgets, but setting it anyway is free — if a given iOS version
+  // honors it, accessory taps gain full parity with the home screens (period
+  // baked in, no per-widget configuration); if ignored, it's a no-op and the
+  // manual per-widget "Open URL" path still covers taps.
   widget.url = layoutConfig.layout === "stacked" ? budgetTapUrl(lunchMoneyData) : transactionsTapUrl(lunchMoneyData);
   renderWidget(mainStack, lunchMoneyData, layoutConfig);
 
@@ -1049,6 +1154,15 @@ function renderWidget(mainStack, data, config) {
     case "overview":
       withHeaderAndSpacer(mainStack, data, config, OVERVIEW_GAP, addOverview);
       break;
+    case "accessoryRectangular":
+      addAccessoryRectangular(mainStack, data, config);
+      break;
+    case "accessoryCircular":
+      addAccessoryCircular(mainStack, data, config);
+      break;
+    case "accessoryInline":
+      addAccessoryInline(mainStack, data, config);
+      break;
     default: // breakdown / extraLarge
       withHeaderAndSpacer(mainStack, data, config, OVERVIEW_GAP, addBreakdownSection);
       break;
@@ -1203,6 +1317,53 @@ function addReviewSplit(mainStack, data, config) {
   right.addSpacer();
 }
 
+// Lock-screen rectangular accessory: a Leftover line, an Unreviewed caption,
+// and as many transaction rows as the accessory's height allows — no header,
+// no metrics columns. Rows fit via the same addUnreviewedItems budget path as
+// the medium review list; the trailing flex spacer absorbs the leftover points.
+function addAccessoryRectangular(mainStack, data, config) {
+  const leftover = mainStack.addStack();
+  leftover.layoutHorizontally();
+  // The label and amount share one point size, so their line boxes are equal
+  // and center-alignment lands them on the same baseline (the same arrangement
+  // addDetailRow uses for its aligned label+value rows).
+  leftover.centerAlignContent();
+  addCaption(leftover, "Leftover", config.caption, true);
+  addAmount(leftover, data.savings, { size: config.amount, alignRight: true });
+
+  mainStack.addSpacer(ACC_HEADER_GAP);
+
+  const unreviewed = mainStack.addStack();
+  unreviewed.layoutVertically();
+  addCaption(unreviewed, "Unreviewed", config.caption, true);
+  addUnreviewedItems(unreviewed, data, config);
+  mainStack.addSpacer();
+}
+
+// Lock-screen circular accessory: the "Leftover" caption stacking above the
+// amount, both at fixed sizes from the FAMILY_LAYOUTS entry. The caption is
+// kept smaller than the amount (9 vs 13pt) so the two lines fit the ring on
+// every device — the config sizes replace the old per-render fit test.
+// Centered on both axes: flexible spacers above and below do the vertical
+// centering (layoutWeight is unreliable inside accessory widgets), and
+// addCaption / addAmount each center their line horizontally.
+function addAccessoryCircular(mainStack, data, config) {
+  mainStack.addSpacer();
+  addCaption(mainStack, "Leftover", config.caption);
+  addAmount(mainStack, data.savings, { size: config.amount });
+  mainStack.addSpacer();
+}
+
+// Lock-screen inline accessory (the single line above the clock): Scriptable
+// forces its own system typeface, so this is just "Leftover <amount>" as plain
+// text — not addAmount, which would try to use Menlo-Bold and re-center.
+function addAccessoryInline(mainStack, data, config) {
+  const label = mainStack.addText("Leftover " + formatMoney(data.savings));
+  label.textColor = regularColor;
+  label.lineLimit = 1;
+  label.minimumScaleFactor = 0.5;
+}
+
 // Inflow / Outflow / Leftover rows, sharing one caption + amount style.
 // The medium layout (alignLeft) right-justifies amounts inside a reserved
 // column, so the decimals share one right edge and the gap to the unreviewed
@@ -1255,6 +1416,15 @@ function listHeightBudget(config) {
     // medium: list shares the row's fixed height with the metrics column
     return height - PADDING_Y - headerHeight(config) - REVIEW_GAP - lineHeight(config.caption);
   }
+  if (config.layout === "accessoryRectangular") {
+    // rectangular accessory: leftover line + caption above the list, with tight
+    // lock-screen margins (ACC_PAD_TOP / ACC_PAD_BOTTOM / ACC_HEADER_GAP) plus
+    // ACC_SLACK so the last row never touches the widget's bottom edge. The
+    // leftover line's height is whichever of its caption/amount is taller.
+    const leftoverLine = Math.max(lineHeight(config.amount), lineHeight(config.caption));
+    return height - pad(config, "padTop", ACC_PAD_TOP) - pad(config, "padBottom", ACC_PAD_BOTTOM)
+      - leftoverLine - ACC_HEADER_GAP - lineHeight(config.caption) - ACC_SLACK;
+  }
   if (config.layout === "overview") {
     const metricRowH = lineHeight(config.caption) + STACK_SPACING + lineHeight(config.amount);
     return height - PADDING_Y - headerHeight(config) - OVERVIEW_GAP - metricRowH - LIST_BODY_GAP - lineHeight(config.caption);
@@ -1284,7 +1454,8 @@ function maxUnreviewedCount(data, config) {
 // matches medium's instead of bottoming out at 7pt). The single source every
 // detail-sized measure derives from, so a size tweak lands everywhere.
 function detailFontSize(config, fallback) {
-  return (config && config.detailFont) || fallback || 9;
+  const size = config && config.detailFont;
+  return size || fallback || 9;
 }
 
 // Font for the "No unreviewed transactions" notice: Avenir at the layout's
@@ -1327,10 +1498,10 @@ function addTransactionRow(parent, t, config) {
   const row = parent.addStack();
   row.layoutHorizontally();
   const fontSize = detailFontSize(config);
-  // In the medium (review) list the payee is capped by row width so a long
-  // name truncates with "…" instead of running into its amount; other layouts
-  // keep the fixed character cap.
-  const maxPayee = config.layout === "review" ? mediumPayeeBudget(config) : (config.payeeLen || 16);
+  // The payee is capped by the row's real width (medium review list column or
+  // rectangular accessory inner width) so a long name truncates with "…"
+  // instead of running into its amount; other layouts keep the fixed char cap.
+  const maxPayee = payeeMax(config);
   const payee = row.addText(clip(t.payee, maxPayee));
   payee.font = monoFont(fontSize);
   payee.textColor = regularColor;
@@ -1348,16 +1519,26 @@ function addTransactionRow(parent, t, config) {
   parent.addSpacer(ROW_GAP);
 }
 
-// Max payee characters in the medium (review) list so a name truncates with
-// "…" while always leaving room for a fixed gap and the widest signed amount
-// on the same line — the payee can then never reach its own amount. Measured
-// against the list column's real width (its share of the inner width), not the
-// whole widget, so long names use the space the layout actually gives them.
-function mediumPayeeBudget(config) {
+// Available width for the dynamic payee cap: the medium review list column or
+// the rectangular accessory's inner width. Returns null for layouts that use
+// the fixed payeeLen from their config.
+function listWidth(config) {
+  if (config.layout === "review") return LIST_COLUMN_WIDTH;
+  if (config.layout === "accessoryRectangular") return ACCESSORY_SIZE.rectW - 2 * ACC_PAD_SIDE;
+  return null;
+}
+
+// Max payee characters on one transaction row so a name truncates with "…"
+// while always leaving room for the fixed gap and the widest signed amount.
+// Widths come from the real list width the layout hands the row (listWidth) —
+// never the whole widget, so long names use the space the layout actually
+// gives them. Other layouts (large/extraLarge) use the fixed payeeLen from
+// their config.
+function payeeMax(config) {
   const fs = detailFontSize(config);
-  const amountW = textWidth(MAX_SIGNED_MONEY, fs);
-  const listW = LIST_COLUMN_WIDTH;
-  const room = Math.max(0, listW - INLINE_GAP - amountW);
+  const width = listWidth(config);
+  if (width == null) return config.payeeLen || 16;
+  const room = Math.max(0, width - INLINE_GAP - textWidth(MAX_SIGNED_MONEY, fs));
   return Math.max(4, Math.floor(room / charWidth(fs)));
 }
 

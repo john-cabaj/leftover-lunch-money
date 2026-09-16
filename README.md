@@ -21,7 +21,7 @@ Tapping the widget opens the Lunch Money web app in a Scriptable WebView (inside
 
 1. Download [Scriptable](https://scriptable.app)
 2. Add new script
-3. Copy and paste the contents of [index.js](https://raw.githubusercontent.com/john-cabaj/leftover-lunch-money/refs/tags/v1/index.js) and save
+3. Copy and paste the contents of [index.js](https://raw.githubusercontent.com/john-cabaj/leftover-lunch-money/refs/tags/v2/index.js) and save
 4. Tap and hold on the script name, select rename, name the script "Leftover Lunch Money"
 
    NOTE: This is not required for functionality, but describes the script for ease of use
@@ -39,14 +39,20 @@ Tapping the widget opens the Lunch Money web app in a Scriptable WebView (inside
 13. Enjoy!
 
 ## Other images
-### Large
+### Home Screen Large
 <img width="539" height="539" alt="IMG_0112" src="https://github.com/user-attachments/assets/4a223323-6b3f-4c43-9d42-08f1a8e8e257" />
 
-### Small
+### Home Screen Small
 <img width="253" height="253" alt="IMG_0115" src="https://github.com/user-attachments/assets/81b10238-37d9-4f2c-a2a0-9e977df6e036" />
 
-### Medium
+### Home Screen Medium
 <img width="537" height="249" alt="IMG_0113" src="https://github.com/user-attachments/assets/281cae29-c497-4ed1-a7ef-1be63a68857c" />
+
+### Lock Screen Medium
+<img width="417" height="213" alt="IMG_0004" src="https://github.com/user-attachments/assets/7fb226be-e883-42d8-a15a-528f3555e006" />
+
+### Lock Screen Small
+<img width="210" height="210" alt="IMG_0006" src="https://github.com/user-attachments/assets/3a8cf275-fad2-4305-ab4f-1d4be066b6e5" />
 
 ## Privacy
 Cached data (unreviewed transactions and inflow/outflow/leftover information) and diagnostics data are stored in Scriptable's Documents directory.
