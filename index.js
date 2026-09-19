@@ -178,15 +178,15 @@ function transactionsTapUrl(data) {
   return transactionPageUrl(data, { include_pending: true });
 }
 
-// Fields of the /summary totals breakdown that feed each side of the leftover.
-// Inflow counts every source. Outflow only sums the uncategorized buckets:
-// transactions with no category never appear in a category row, so they'd
-// otherwise be counted as neither inflow nor outflow. Every other outflow
-// field already shows up in a budgeted or unbudgeted category's contribution.
+// Field of the /summary totals breakdown that feeds the outflow side of the
+// leftover. Outflow only sums the uncategorized buckets: transactions with no
+// category never appear in a category row, so they'd otherwise be counted as
+// neither inflow nor outflow. Every other outflow field already shows up in a
+// budgeted or unbudgeted category's contribution. Inflow comes from the income
+// categories instead (see incomeFigures), not from this breakdown.
 // (DECLARED UP HERE so they initialize before the boot sequence awaits — the
 // calc functions reference them, and top-level await below would otherwise
 // read them from the temporal dead zone.)
-const INFLOW_FIELDS = ["other_activity", "recurring_activity", "recurring_remaining", "uncategorized"];
 const OUTFLOW_FIELDS = ["uncategorized", "uncategorized_recurring"];
 
 // --------------------------------------------------------------------------
@@ -849,28 +849,6 @@ function shapeBudgetRow(entry, names) {
   };
 }
 
-// Expands summary rows into per-category budget/activity data, applying group
-// rules so groups and their children are never both counted
-function categoryRows(summary, categories) {
-  const { info, names } = indexCategories(categories);
-
-  // Start from every spend entry: the only transactions excluded from the
-  // leftover are income and categories flagged "exclude from totals" — they
-  // are outside the money in/out picture. Every other category counts.
-  const entries = (summary.categories || []).filter((entry) => {
-    const cat = categoryInfo(info, entry);
-    return !cat.isIncome && !cat.excludeFromTotals;
-  });
-
-  // Track which groups and which children hold budgets, to avoid double counting
-  const { groupedBudgeted, groupHasBudgetedChildren } = budgetGrouping(entries, info);
-
-  // Drop double-counted rows, then shape each survivor into a clean row object
-  return entries
-    .filter((entry) => shouldCountEntry(entry, info, groupedBudgeted, groupHasBudgetedChildren))
-    .map((entry) => shapeBudgetRow(entry, names));
-}
-
 // A child row counts only when its group's budget is actually held at the
 // group level; a group row counts only when it carries its own budget and no
 // children do
@@ -886,16 +864,67 @@ function shouldCountEntry(entry, info, groupedBudgeted, groupHasBudgetedChildren
   return true;
 }
 
+// The summary entries contributing to one side of the leftover, after applying
+// the same selection the widget uses everywhere else: only income categories
+// when isIncome is true (spending categories otherwise), never categories
+// flagged "exclude from totals" (transfers, reimbursements, etc.), and group
+// rows/children mutually excluded so neither is double-counted. Returns the
+// survivors plus the indexed name map so callers can shape or sum them.
+function countedEntries(summary, categories, isIncome) {
+  const { info, names } = indexCategories(categories);
+
+  const entries = (summary.categories || []).filter((entry) => {
+    const cat = categoryInfo(info, entry);
+    return !!cat.isIncome === isIncome && !cat.excludeFromTotals;
+  });
+
+  const { groupedBudgeted, groupHasBudgetedChildren } = budgetGrouping(entries, info);
+
+  return {
+    names,
+    entries: entries
+      .filter((entry) => shouldCountEntry(entry, info, groupedBudgeted, groupHasBudgetedChildren))
+  };
+}
+
+// Expands summary rows into per-category budget/activity data, applying group
+// rules so groups and their children are never both counted
+function categoryRows(summary, categories) {
+  const { entries, names } = countedEntries(summary, categories, false);
+  return entries.map((entry) => shapeBudgetRow(entry, names));
+}
+
+// The period's income as the two figures Lunch Money's "max" income option
+// compares: expected income — the budgets set on income categories — and
+// actual income activity — what those categories actually received. Both are
+// summed over the counted income entries, taken as magnitudes.
+function incomeFigures(summary, categories) {
+  const { entries } = countedEntries(summary, categories, true);
+
+  let expected = 0;
+  let actual = 0;
+  for (const entry of entries) {
+    if (entry.totals.budgeted != null) expected += Math.abs(entry.totals.budgeted);
+    actual += Math.abs(entry.totals.other_activity || 0) + Math.abs(entry.totals.recurring_activity || 0);
+  }
+
+  return { expected, actual };
+}
+
 // Money in this period minus what we're on the hook to spend in it. Inflow is
-// everything that came in; outflow is what every category row commits to spend
-// plus the uncategorized spend that lives outside all rows, so non-budget
-// spending still shrinks the leftover.
+// the general pool Lunch Money calls "budgetable": the period's income — the
+// larger of expected income and actual income activity — plus the rollover
+// pool balance carried into it. Outflow is what every category row commits to
+// spend plus the uncategorized spend that lives outside all rows, so
+// non-budget spending still shrinks the leftover.
 function computeLeftover(summary, categories) {
   if (!summary || !Array.isArray(summary.categories)) {
     return null;
   }
 
-  const inflow = sumBreakdownFields(summary.totals && summary.totals.inflow, INFLOW_FIELDS);
+  const income = incomeFigures(summary, categories);
+  const inflow = Math.max(income.expected, income.actual)
+    + ((summary.rollover_pool && summary.rollover_pool.budgeted_to_base) || 0);
   const outflow = categoryRows(summary, categories).reduce((sum, row) => sum + row.contribution, 0)
     + sumBreakdownFields(summary.totals && summary.totals.outflow, OUTFLOW_FIELDS);
 
@@ -906,9 +935,9 @@ function computeLeftover(summary, categories) {
   };
 }
 
-// Sum a totals breakdown's named fields (declared as INFLOW_FIELDS /
-// OUTFLOW_FIELDS in the configuration block) as non-negative magnitudes,
-// treating a missing breakdown or field as zero (never null)
+// Sum a totals breakdown's named fields (declared as OUTFLOW_FIELDS in the
+// configuration block) as non-negative magnitudes, treating a missing
+// breakdown or field as zero (never null)
 function sumBreakdownFields(breakdown, keys) {
   if (!breakdown) return 0;
   return keys.reduce((total, key) => total + Math.abs(breakdown[key] || 0), 0);

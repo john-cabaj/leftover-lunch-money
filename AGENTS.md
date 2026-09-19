@@ -30,8 +30,8 @@ Periods come from Lunch Money's `/budgets/settings` (anchor date, granularity, q
 
 `computeLeftover` is budget-based, not spend-based: `leftover = inflow − outflow`.
 
-- `inflow` is the sum of the summary's `totals.inflow` breakdown fields (`other_activity`, `recurring_activity`, `recurring_remaining`, `uncategorized`), as magnitudes.
-- `outflow` is every category row's `contribution` plus the summary's `totals.outflow.uncategorized` and `uncategorized_recurring` buckets.
+- `inflow` is the larger of expected income and actual income activity over the budget's income categories plus the `rollover_pool.budgeted_to_base` balance — together the general pool Lunch Money calls "budgetable" (this period's income plus money carried into it). Expected income is the sum of the budgets set on income categories (their `totals.budgeted`); actual income activity is what those categories actually received (`other_activity` + `recurring_activity`). Taking the larger matches Lunch Money's "max" budget-income option: income counted toward a budget that hasn't arrived yet still counts for the period, while realized income above the budget is honored. Income ornaments the same group/children mutual exclusion as outflow rows, and categories flagged `exclude_from_totals` (transfers, reimbursements, etc.) never count. The `totals.inflow` breakdown is not consulted — expected income is the income budget set for the period, not a projection of transactions still to come.
+- `outflow` is every category row's `contribution` plus the summary's `totals.outflow.uncategorized` buckets (the two uncategorized columns summed via `OUTFLOW_FIELDS`).
 - A budgeted category contributes its budget (budget + overspend when its `available` is negative); an unbudgeted category contributes its activity. Rows and the uncategorized buckets are summed with `sumBreakdownFields`.
 - Non-budget spending still drains the leftover, via three routes:
   - Categories with no budget amount still appear in `/summary`'s category array with `budgeted: null`, so they contribute their activity.
@@ -39,6 +39,7 @@ Periods come from Lunch Money's `/budgets/settings` (anchor date, granularity, q
   - Transactions with no category never appear in a category row at all; they only surface in the `totals.outflow.uncategorized` buckets.
 - The only categories dropped from the leftover are income and categories flagged `exclude_from_totals`. `exclude_from_budget` alone never excludes a category from outflow.
 - Groups: budgeted groups and budgeted children are mutually exclusive (`shouldCountEntry`) — a group row counts only when it holds its own budget with no budgeted children; otherwise its children count individually.
+- Lunch Money's separate recurring-planning section is intentionally not leveraged: expected income is the income budget, and every spending commitment comes from a category's budget/activity — never from a recurring projection.
 
 ## Tap Navigation
 
