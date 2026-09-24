@@ -19,8 +19,18 @@
  *     - Tap targets deep-link to the Lunch Money web app at the displayed     *
  *       period (see AGENTS.md → Tap Navigation) and are shown inside          *
  *       Scriptable in a WebView — never exported to the browser. Per-region   *
- *       targets live on stacks; the widget-wide url is the fallback           *
- *       (transactions, or budget on the stacked small widget).                *
+ *       targets live on stacks; the widget-wide url is the fallback (the      *
+ *       transactions view — except the single-target widgets: the stacked     *
+ *       small widget and the leftover-only accessories (circular + inline)    *
+ *       open Budget, exactly like the small home-screen widget).              *
+ *     - When synced transactions await a manual delete (delete_pending), a    *
+ *       red "Deleted Transactions Pending" label tops the unreviewed column   *
+ *       above the "Unreviewed Transactions" caption, aligned like it          *
+ *       (centered on large, left on medium) at the cost of the list's last    *
+ *       fitted row while it's up; the small stacked widget (no list) tops its *
+ *       metrics with the same line. Tapping opens the UNFILTERED (no date     *
+ *       filter) delete_pending transactions page — all of them, regardless    *
+ *       of period.                                                            *
  *                                                                             *
  ******************************************************************************/
 
@@ -37,7 +47,7 @@ const COLORS = {
 // Brand palette. Roles:
 //   BRAND_GREEN — positive figures + the product title
 //   BRAND_YELLOW — captions / section labels
-//   LOSS_RED    — a negative leftover
+//   LOSS_RED    — a negative leftover / the Delete Pending badge
 const BRAND_GREEN = '#44958C';
 const BRAND_YELLOW = '#FBB700';
 const LOSS_RED = '#E15554';
@@ -173,6 +183,22 @@ function unreviewedTapUrl(data) {
   return transactionPageUrl(data, { status: "unreviewed", include_pending: true, match: "all" });
 }
 
+// The Delete Pending badge opens every transaction still waiting on a manual
+// delete — all of them, with NO date filter. Missed manual deletes are
+// period-independent, so the target skips the period path and time=custom
+// range the period-spanning taps pin; time=all is how the web app expresses
+// "all time" (buildQueryDateRange returns no date range for it). The status
+// value is the web app's own filter label, "delete pending" (a space, not the
+// API's delete_pending — the transactions page matches the label literally,
+// so the underscore value would match nothing and land on the plain list).
+function deletePendingTapUrl() {
+  return appDeepLink(WEB_APP_URL + "/transactions" + buildQueryString({
+    match: "all",
+    status: "delete pending",
+    time: "all"
+  }));
+}
+
 // Any other tap opens the regular transactions view, pending included
 function transactionsTapUrl(data) {
   return transactionPageUrl(data, { include_pending: true });
@@ -183,7 +209,7 @@ function transactionsTapUrl(data) {
 // category never appear in a category row, so they'd otherwise be counted as
 // neither inflow nor outflow. Every other outflow field already shows up in a
 // budgeted or unbudgeted category's contribution. Inflow comes from the income
-// categories instead (see incomeFigures), not from this breakdown.
+// categories instead (see incomeInflow), not from this breakdown.
 // (DECLARED UP HERE so they initialize before the boot sequence awaits — the
 // calc functions reference them, and top-level await below would otherwise
 // read them from the temporal dead zone.)
@@ -218,12 +244,40 @@ const MONTHS = ["January", "February", "March", "April", "May", "June", "July", 
 // Geometry
 // --------------------------------------------------------------------------
 
-// Approximate line height for a given font size. The monospace line box is
-// tight (≈LINE_HEIGHT_FACTOR× the point size), so lineHeight deliberately
-// under-reserves the height the layout needs, letting the row budgets fit the
-// last row.
-const LINE_HEIGHT_FACTOR = 1.15;
-function lineHeight(size) { return Math.ceil(size * LINE_HEIGHT_FACTOR); }
+// Real rendered line heights read from Scriptable's font metrics, so row
+// budgets match how text actually lays out. The old text-height heuristic
+// under-measured Avenir, so a full list overflowed the widget and Scriptable
+// pushes excess content off the TOP of the widget — clipping the LUNCH MONEY
+// title. Budgets now measure each family's actual line height; the fallback
+// factors keep running on runtimes without Font.lineHeight. LINE_HEIGHT_FACTOR
+// (≈1.15×) is Menlo's tight line box, used by the small widget's amount fit.
+const LINE_HEIGHT_FACTOR = 1.15;              // Menlo height factor (small-widget fit)
+const AVENIR_LINE_HEIGHT_FALLBACK = 1.35;    // Avenir's tall line box, no Font.lineHeight
+function measureLineHeight(size, name, fallback) {
+  const f = new Font(name, size);
+  const lh = f.lineHeight;
+  return Math.ceil(typeof lh === "number" && lh > 0 ? lh : size * fallback);
+}
+// Avenir text (titles, captions, period, detail rows, the Delete Pending label)
+function lineHeight(size) { return measureLineHeight(size, FONT_NAME, AVENIR_LINE_HEIGHT_FALLBACK); }
+// Menlo-Bold money figures (the three amount rows)
+function monoLineHeight(size) { return measureLineHeight(size, MONO_FONT_BOLD, LINE_HEIGHT_FACTOR); }
+// Menlo regular, the unreviewed rows' font: the amounts are Menlo-Bold (held by
+// monoLineHeight), so each pitch is measured with the exact font it renders.
+// The pair usually shares metrics, but measuring the real font is the only way
+// a row pitch can never drift from its render.
+function monoRegularLineHeight(size) { return measureLineHeight(size, MONO_FONT_NAME, LINE_HEIGHT_FACTOR); }
+
+// The Lean line box (LEAN_LINE_FACTOR) is used ONLY where the widget reserves
+// fixed header/caption space that WidgetKit renders tighter than Font.lineHeight
+// (the visible slack on device): the medium review layout's header + caption and
+// the Delete Pending badge line. The small stacked widget's badge line shares
+// that lean reserve: it tops the metrics (addStackedMetrics) and the extra line
+// is absorbed by the same slack — WidgetKit lays the Avenir caption lines tighter
+// than the measured lineHeight the amount fit reserves against, so the label
+// needs no size or padding change and no height is searched for.
+const LEAN_LINE_FACTOR = 1.06;
+function leanLineHeight(size) { return Math.ceil(size * LEAN_LINE_FACTOR); }
 
 // Widget container sizes (pt): [width, small, medium, large] for the widget
 // families by device screen (portrait points). Read from Device.screenSize() so
@@ -296,8 +350,17 @@ const ROW_GAP = 1;         // trailing gap after each unreviewed row; keep in sy
 const ACC_PAD_TOP = 4;
 const ACC_PAD_BOTTOM = 4;
 const ACC_PAD_SIDE = 6;
-const ACC_HEADER_GAP = 2;  // accessory: Leftover line → "Unreviewed" caption
+const ACC_HEADER_GAP = 2;  // accessory: Leftover line → "Unreviewed Transactions" caption
 const ACC_SLACK = 2;       // accessory: reserved so the last row never touches the edge
+
+// The Menlo transaction rows sit a hair to the LEFT of the Avenir captions at
+// the same leading origin — the two faces render their first glyph at slightly
+// different left bearings — so the Menlo rows take a small leading nudge to
+// share the caption's visual left edge. Applied to the lock-screen accessory's
+// transaction rows (addTransactionRow).
+// Calibrate on device: larger moves the Menlo text further right, negative
+// flips the direction.
+const MENLO_LEFT_INSET = 1;
 
 // Gaps the render inserts between the header and the body, and inside the
 // overview body. Shared by BOTH renderWidget/addOverview (where the spacer is
@@ -306,7 +369,7 @@ const ACC_SLACK = 2;       // accessory: reserved so the last row never touches 
 const REVIEW_GAP = 0;      // review: header → metrics/list split; medium's headerPad
                            // (6pt) plus this gap stays at 6pt so row counts don't change
 const OVERVIEW_GAP = 6;    // overview + extraLarge: header → body
-const LIST_BODY_GAP = 10;  // overview: metric row → "Unreviewed" caption
+const LIST_BODY_GAP = 10;  // overview: metric row → "Unreviewed Transactions" caption
 const TITLE_TIME_GAP = 4;  // brand title → last-update time on the same line
 const INLINE_GAP = 8;      // gap between a row's left label and its right value
 const METRIC_LIST_GAP = 24; // review: metrics column → unreviewed list
@@ -318,6 +381,13 @@ const METRIC_LIST_GAP = 24; // review: metrics column → unreviewed list
 // period). The title renders with boldFont(TITLE_SIZE), the period with
 // font(PERIOD_SIZE).
 const TITLE_SIZE = 12;
+// The Delete Pending badge's label text (all synced transactions awaiting a
+// manual delete), styled and phrased like the "Unreviewed Transactions" caption
+// (plural "Transactions"): one caption-weighted line in the palette's loss red
+// shown above the caption at the top of the unreviewed list column. The small
+// stacked widget (no unreviewed list) tops its metrics with the same line
+// (addStackedMetrics) instead of the retired "!" glyph.
+const BADGE_PENDING_LABEL = "Deleted Transactions Pending!";
 const PERIOD_SIZE = 11;
 function headerBlockGap(config) {
   return pad(config, "headerGap", STACK_SPACING);
@@ -337,9 +407,41 @@ function headerBlockHeight(config) {
 // Total vertical space a layout's header occupies: the fixed header block height
 // plus any per-layout headerPad pushed in above the title. The pad doesn't push
 // the body down (the trailing flexible spacer absorbs it), but the row budgets
-// still account for it so list rows never cross the widget's bottom edge.
+// still account for it so list rows never cross the widget's bottom edge. The
+// Delete Pending badge lives in the unreviewed list column, not the header, so
+// it is reserved by listHeightBudget instead (deletePendingBadgeHeight).
 function headerHeight(config) {
   return headerBlockHeight(config) + (config.headerPad || 0);
+}
+
+// Vertical space the Delete Pending badge occupies at the top of the
+// unreviewed list column: one caption-weighted line above the caption, plus
+// LIST_BOTTOM_SLACK breathing room so the list never sits flush against the
+// widget's height limit while the badge is up (a flush list can clip the top
+// of the widget, and the review layout already builds the same 2pt slack into
+// WIDGET_HEIGHTS). Only layouts that render an unreviewed list under a caption
+// reserve it (review / overview / accessoryRectangular — the rectangular
+// lock-screen accessory, whose list fits by the same budget); the small stacked
+// widget's badge line sits in the widget's on-device slack above the metrics
+// instead and reserves nothing, and layouts without an unreviewed list never
+// show the badge. Zero when no transactions await deletion
+// so fitted row counts only shrink when the badge actually shows.
+// The badge line itself is reserved at the LEAN box (like the review header and
+// caption): WidgetKit layers text tighter than Font.lineHeight, so reserving
+// the full measured line under-couns and wastes part of a row while the badge
+// is up. Nothing about the badge's own fit is at risk — the label is short,
+// one line, and never near the width edge or the top clip zone.
+const LIST_BOTTOM_SLACK = 2; // guaranteed gap under the last row / badge line
+function deletePendingBadgeHeight(data, config) {
+  if (!data || !config || (data.deletePendingCount || 0) <= 0) return 0;
+  if (config.layout !== "review" && config.layout !== "overview" && config.layout !== "accessoryRectangular") return 0;
+  return leanLineHeight(config.caption) + LIST_BOTTOM_SLACK;
+}
+
+// True when synced transactions await a manual delete (the Delete Pending
+// badge's trigger); a failed fetch sets a zero count and degrades to no badge.
+function hasDeletePending(data) {
+  return !!data && (data.deletePendingCount || 0) > 0;
 }
 
 // Inner content width: container width minus the 10pt side padding on each
@@ -396,6 +498,32 @@ const FAMILY_LAYOUTS = {
   accessoryCircular: { layout: "accessoryCircular", caption: 9, amount: 13, accessory: true, padTop: 0, padBottom: 0, padSide: 0 },
   accessoryInline: { layout: "accessoryInline", accessory: true, padTop: 0, padBottom: 0, padSide: 8 },
   undefined:  smallLayout
+};
+
+// Each layout name maps to its body renderer; renderWidget just dispatches on it
+// — the same table-driven shape METRICS and FAMILY_LAYOUTS use. Review, overview,
+// and breakdown share the header+spacer skeleton (with distinct gaps); the
+// stacked small widget and the lock-screen accessories build their own bodies.
+// Feel right here in the configuration block (not a later section) because the
+// boot sequence at the top of SETUP calls renderWidget via getWidget, and a
+// table defined lower in the file would still be in its temporal dead zone then.
+const LAYOUT_RENDERERS = {
+  stacked(mainStack, data, config) {
+    addBrandTitle(mainStack, data, config);
+    addStackedMetrics(mainStack, data, config);
+  },
+  review(mainStack, data, config) {
+    withHeaderAndSpacer(mainStack, data, config, REVIEW_GAP, addReviewSplit);
+  },
+  overview(mainStack, data, config) {
+    withHeaderAndSpacer(mainStack, data, config, OVERVIEW_GAP, addOverview);
+  },
+  breakdown(mainStack, data, config) {
+    withHeaderAndSpacer(mainStack, data, config, OVERVIEW_GAP, addBreakdownSection);
+  },
+  accessoryRectangular: addAccessoryRectangular,
+  accessoryCircular: addAccessoryCircular,
+  accessoryInline: addAccessoryInline
 };
 
 /****************************************************
@@ -605,13 +733,22 @@ async function getWidget() {
   const mainStack = widget.addStack();
   mainStack.layoutVertically();
   mainStack.spacing = accessory ? 0 : STACK_SPACING;
-  // The widget-wide tap URL (the fallback when no region was hit). Set for the
-  // accessory families too: Scriptable's documented behavior ignores .url on
-  // lock-screen widgets, but setting it anyway is free — if a given iOS version
-  // honors it, accessory taps gain full parity with the home screens (period
-  // baked in, no per-widget configuration); if ignored, it's a no-op and the
-  // manual per-widget "Open URL" path still covers taps.
-  widget.url = layoutConfig.layout === "stacked" ? budgetTapUrl(lunchMoneyData) : transactionsTapUrl(lunchMoneyData);
+  // The widget-wide tap URL (the fallback when no region was hit): the regular
+  // transactions view for the period — except on the stacked small widget and the
+  // leftover-only lock-screen accessories (circular ring + inline strip), whose
+  // single whole-widget target opens Budget, exactly like the small home-screen
+  // widget. A small widget supports only ONE tap target (Scriptable/WidgetKit:
+  // element urls are honored on medium/large only, and the small widget opens
+  // whatever widget.url holds no matter where it's tapped), and the circular and
+  // inline accessories are nothing but the metric — the same stacked-widget case
+  // — so they take budgetTapUrl too. Set for the accessory families as well:
+  // Scriptable's documented behavior ignores .url on lock-screen widgets, but
+  // setting it anyway is free — if a given iOS version honors it, accessory taps
+  // gain full parity with the home screens (period baked in, no per-widget
+  // configuration); if ignored, it's a no-op and the manual per-widget "Open URL"
+  // path still covers url-less taps (which open the transactions fallback).
+  const budgetTap = layoutConfig.layout === "stacked" || layoutConfig.layout === "accessoryCircular" || layoutConfig.layout === "accessoryInline";
+  widget.url = budgetTap ? budgetTapUrl(lunchMoneyData) : transactionsTapUrl(lunchMoneyData);
   renderWidget(mainStack, lunchMoneyData, layoutConfig);
 
   return widget;
@@ -704,10 +841,11 @@ async function lunchMoneyLeftoverInfo() {
     // summary: only income and "exclude from totals" categories drop out of
     // the leftover, so budget-excluded spending must still count as outflow.
     const params = { ...range, include_totals: true, include_rollover_pool: true, include_exclude_from_budgets: true };
-    const [summary, categories, unreviewed] = await Promise.all([
+    const [summary, categories, unreviewed, deletePending] = await Promise.all([
       sendLunchMoneyRequest('/summary', params),
       sendLunchMoneyRequest('/categories'),
-      fetchUnreviewedTransactions(range)
+      fetchUnreviewedTransactions(range),
+      fetchDeletePendingTransactions(range)
     ]);
     return {
       ...computeLeftover(summary, categories),
@@ -715,12 +853,27 @@ async function lunchMoneyLeftoverInfo() {
       periodStart: range.start_date,
       periodEnd: range.end_date,
       unreviewed: unreviewed.rows,
-      unreviewedStatus: unreviewed.status
+      unreviewedStatus: unreviewed.status,
+      deletePendingCount: deletePending.count,
+      deletePendingStatus: deletePending.status
     };
   } catch (e) {
     console.error(e);
     return null;
   }
+}
+
+// The raw /transactions rows for one status within the range. Both status pulls
+// below differ only in this call (delete_pending sends no include_pending), so
+// the request shape lives here and the wrappers keep their own mapping + status
+// semantics.
+async function fetchTransactions(range, status, includePending = false) {
+  const data = await sendLunchMoneyRequest('/transactions', {
+    ...range,
+    status,
+    ...(includePending ? { include_pending: true } : {})
+  });
+  return (data && data.transactions) || [];
 }
 
 // Recent transactions awaiting review in the period, newest first. Filters
@@ -729,12 +882,7 @@ async function lunchMoneyLeftoverInfo() {
 // to review) apart from a failed fetch (nothing known about the list).
 async function fetchUnreviewedTransactions(range) {
   try {
-    const data = await sendLunchMoneyRequest('/transactions', {
-      ...range,
-      status: "unreviewed",
-      include_pending: true
-    });
-    const raw = (data && data.transactions) || [];
+    const raw = await fetchTransactions(range, "unreviewed", true);
     const counts = {};
     raw.forEach((t) => { counts[t.status] = (counts[t.status] || 0) + 1; });
     const rows = raw
@@ -754,6 +902,20 @@ async function fetchUnreviewedTransactions(range) {
   } catch (e) {
     writeDiagnostics("unreviewed request failed: " + e);
     return { rows: [], status: "failed" };
+  }
+}
+
+// Transactions the synced account deleted after they were updated by the user;
+// these need manual intervention. Returns a count so the layout can show the
+// Delete Pending badge, and a status so a failed fetch can degrade to no badge.
+async function fetchDeletePendingTransactions(range) {
+  try {
+    const raw = await fetchTransactions(range, "delete_pending");
+    writeDiagnostics(`delete_pending ${range.start_date}..${range.end_date} count=${raw.length}`);
+    return { count: raw.length, status: raw.length > 0 ? "ok" : "empty" };
+  } catch (e) {
+    writeDiagnostics("delete_pending request failed: " + e);
+    return { count: 0, status: "failed" };
   }
 }
 
@@ -894,26 +1056,31 @@ function categoryRows(summary, categories) {
   return entries.map((entry) => shapeBudgetRow(entry, names));
 }
 
-// The period's income as the two figures Lunch Money's "max" income option
-// compares: expected income — the budgets set on income categories — and
-// actual income activity — what those categories actually received. Both are
-// summed over the counted income entries, taken as magnitudes.
-function incomeFigures(summary, categories) {
+// The period's income under Lunch Money's "max" budget-income option, applied
+// PER CATEGORY: every counted income entry contributes the larger of its own
+// budget (totals.budgeted) and its own realized activity (other_activity +
+// recurring_activity), as a magnitude. A per-category max — not a max of the
+// two summed totals — is what keeps an income source that overperforms its
+// budget from being masked by another source running below its budget: John's
+// Income realizing $12,129.38 against an $11,804.14 budget still counts the
+// full $12,129.38 even while Missy's Income sits at its $1,331 budget with no
+// activity. This lands on the summary's own totals.inflow.recurring_expected
+// figure (received income + budgets not yet received), matching what Lunch
+// Money's budget page shows as expected income. Entries without a budget still
+// contribute their realized activity; a budgeted-but-unreceived income category
+// counts its full budget.
+function incomeInflow(summary, categories) {
   const { entries } = countedEntries(summary, categories, true);
-
-  let expected = 0;
-  let actual = 0;
-  for (const entry of entries) {
-    if (entry.totals.budgeted != null) expected += Math.abs(entry.totals.budgeted);
-    actual += Math.abs(entry.totals.other_activity || 0) + Math.abs(entry.totals.recurring_activity || 0);
-  }
-
-  return { expected, actual };
+  return entries.reduce((total, entry) => {
+    const budgeted = entry.totals.budgeted != null ? Math.abs(entry.totals.budgeted) : 0;
+    const activity = Math.abs(entry.totals.other_activity || 0) + Math.abs(entry.totals.recurring_activity || 0);
+    return total + Math.max(budgeted, activity);
+  }, 0);
 }
 
 // Money in this period minus what we're on the hook to spend in it. Inflow is
 // the general pool Lunch Money calls "budgetable": the period's income — the
-// larger of expected income and actual income activity — plus the rollover
+// per-category max of expected vs realized (incomeInflow) — plus the rollover
 // pool balance carried into it. Outflow is what every category row commits to
 // spend plus the uncategorized spend that lives outside all rows, so
 // non-budget spending still shrinks the leftover.
@@ -922,8 +1089,7 @@ function computeLeftover(summary, categories) {
     return null;
   }
 
-  const income = incomeFigures(summary, categories);
-  const inflow = Math.max(income.expected, income.actual)
+  const inflow = incomeInflow(summary, categories)
     + ((summary.rollover_pool && summary.rollover_pool.budgeted_to_base) || 0);
   const outflow = categoryRows(summary, categories).reduce((sum, row) => sum + row.contribution, 0)
     + sumBreakdownFields(summary.totals && summary.totals.outflow, OUTFLOW_FIELDS);
@@ -1170,32 +1336,11 @@ function writeCache(data) {
              WIDGET LAYOUTS
 *****************************************************/
 
-// Top-level renderer: picks stacked / review / overview / breakdown layouts
+// Top-level renderer: picks the layout's body from LAYOUT_RENDERERS (extraLarge
+// maps to the breakdown entry; anything unknown falls back to it too)
 function renderWidget(mainStack, data, config) {
-  switch (config.layout) {
-    case "stacked":
-      addBrandTitle(mainStack, data, config);
-      addStackedMetrics(mainStack, data, config);
-      break;
-    case "review":
-      withHeaderAndSpacer(mainStack, data, config, REVIEW_GAP, addReviewSplit);
-      break;
-    case "overview":
-      withHeaderAndSpacer(mainStack, data, config, OVERVIEW_GAP, addOverview);
-      break;
-    case "accessoryRectangular":
-      addAccessoryRectangular(mainStack, data, config);
-      break;
-    case "accessoryCircular":
-      addAccessoryCircular(mainStack, data, config);
-      break;
-    case "accessoryInline":
-      addAccessoryInline(mainStack, data, config);
-      break;
-    default: // breakdown / extraLarge
-      withHeaderAndSpacer(mainStack, data, config, OVERVIEW_GAP, addBreakdownSection);
-      break;
-  }
+  const renderer = LAYOUT_RENDERERS[config.layout] || LAYOUT_RENDERERS.breakdown;
+  renderer(mainStack, data, config);
 }
 
 // Header on top, a fixed gap, a body section, and a trailing flexible spacer —
@@ -1221,15 +1366,30 @@ function addBreakdownSection(parent, data, config) {
 
 // Inflow / Outflow / Leftover stacked vertically (small, in-app preview).
 // Labels hug the left edge while the monetary amounts right-justify, so the
-// cents line up across rows. The stack fills the whole widget so any tap opens
-// Budget.
+// cents line up across rows. Taps: the small widget supports only ONE tap
+// target (Scriptable/WidgetKit: element urls are honored on medium/large only),
+// so the whole widget's tap opens Budget via widget.url — neither the
+// Delete Pending label nor the metrics carry their own stack urls here (they'd
+// never fire). When synced transactions await a manual delete, the full red
+// "Deleted Transactions Pending!" label — the same caption-weighted line the
+// list layouts show — tops the metrics above the Inflow caption instead of the
+// old single "!" that rode the Leftover amount row. It needs only
+// leanLineHeight(caption) of the widget's real on-device slack (WidgetKit lays
+// Avenir tighter than Font.lineHeight — the same slack the review layout
+// reclaims for row counts), so no existing size or padding changes; a full
+// caption-weight line also reads as the alert it is (a lone glyph was a
+// razor-thin hit area, though on small no element is tappable anyway).
 function addStackedMetrics(parent, data, config) {
   const stack = parent.addStack();
   stack.layoutVertically();
   stack.layoutWeight = 1;
   stack.topAlignContent();
-  stack.url = budgetTapUrl(data);
-  addMetrics(stack, data, config, { amountSize: config.amount, alignRight: true, captionLeft: true });
+  if (hasDeletePending(data)) addDeletePendingBadge(stack, data, config, { alignLeft: true });
+  addMetrics(stack, data, config, {
+    amountSize: config.amount,
+    alignRight: true,
+    captionLeft: true
+  });
 }
 
 // The "LUNCH MONEY" brand text, left- or center-aligned per layout. Shared by
@@ -1261,9 +1421,11 @@ function addTimestamp(parent, timeText, config, invisible) {
 // (TITLE_TIME_GAP apart): an invisible mirror of the time balances the time +
 // gap on the left and the two flexible spacers share the rest, so the centering
 // never shifts whether or not the time is rendered. The small stacked widget
-// has no room to center beside the time, so its title left-justifies like the
-// Inflow caption and the time simply follows it. centerAlignContent levels the
-// smaller timestamp with the title on every layout.
+// has no room to center beside the time, so its title left-justifies like
+// the Inflow caption and the time trails after (the Delete Pending label tops
+// the metrics below, addStackedMetrics).
+// centerAlignContent levels the smaller timestamp with the title on every
+// layout.
 function addBrandTitle(parent, data, config) {
   const row = parent.addStack();
   row.layoutHorizontally();
@@ -1283,6 +1445,44 @@ function addBrandTitle(parent, data, config) {
   addBrandTitleText(row, "center");
   if (timeText) separatedTime(false);
   row.addSpacer();
+}
+
+// "Deleted Transactions Pending" label, shown once at the TOP of the
+// unreviewed list column — above the "Unreviewed Transactions" caption —
+// on review, overview, and rectangular-accessory layouts: exactly the
+// caption's font and size (boldFont(config.caption)) in the palette's loss
+// red, tappable to open EVERY transaction filtered to status=delete_pending —
+// no date filter, so it shows all of them regardless of the widget's period. It
+// never scales down (full caption size, like the caption itself), stays on one
+// line — the label fits the narrowest list column (~188pt on the SE 1st-gen
+// medium vs ≈186pt at 13pt, and ≈143pt at the rectangular accessory's 10pt
+// caption vs a 145pt inner width), so it never needs the minScale the old
+// design used. Reserves leanLineHeight(caption) + LIST_BOTTOM_SLACK via
+// deletePendingBadgeHeight so the list loses part of one row while it's up and
+// never runs flush against the widget's height limit (flush lists can clip the
+// widget top). The label is NOT placed inside any stack that already carries a
+// tap URL — the parent column stack drops the unreviewed URL so Scriptable's
+// tap hit-testing resolves to the label's own URL (a parent stack's URL can
+// shadow a child label's).
+// Alignment mirrors the "Unreviewed Transactions" caption it sits above:
+// centered on the large widget (addOverview), left-aligned on the medium
+// (addReviewSplit) and the rectangular accessory (addAccessoryRectangular) via
+// the same addTextRow alignment the caption uses. The accessory also stretches
+// the badge row across the column (stretch), matching the caption and the
+// transaction rows' flush-left edge under the lock screen's centering stack,
+// and overrides the red with the standard label color (brandYellow) — lock
+// screens color labels one way and amounts another, so the badge reads as a
+// label there instead of as a loss amount.
+function addDeletePendingBadge(parent, data, config, opts = {}) {
+  const { row, label } = addTextRow(parent, BADGE_PENDING_LABEL, {
+    font: boldFont(config.caption),
+    color: opts.color || lossRed,
+    alignLeft: opts.alignLeft,
+    stretch: opts.stretch
+  });
+  label.lineLimit = 1;
+  label.url = deletePendingTapUrl();
+  return label;
 }
 
 // Inflow / Leftover / Outflow across the width as three equal columns that scale
@@ -1308,7 +1508,31 @@ function addMetricColumn(parentRow, metric, data, config) {
   addAmount(col, metric.value(data), { size: config.amount, color: metric.color });
 }
 
-// Large layout: metric columns across the width plus the unreviewed list below
+// The unreviewed transactions column shared by the medium (review), large
+// (overview), and rectangular-accessory layouts: an optional Delete Pending
+// badge above the "Unreviewed Transactions" caption, then the rows. On the home
+// screens the caption row and the list stack both carry the unreviewed tap URL —
+// the "limit the unreviewed tap target to the label + list rows" convention —
+// while the badge's own delete-pending URL stays reachable because neither its
+// parent column nor any ancestor stack sets a URL (a parent stack's url can
+// shadow a child's). The lock-screen rectangular accessory keeps the whole
+// column URL-free (tappable: false) so a tap anywhere on it can never shadow the
+// badge target, and it passes the accessory's stretch + label-color options.
+function addUnreviewedSection(parent, data, config, opts = {}) {
+  if (hasDeletePending(data)) {
+    addDeletePendingBadge(parent, data, config, opts);
+  }
+  const caption = addCaption(parent, "Unreviewed Transactions", config.caption, opts.alignLeft, opts.stretch);
+  const list = parent.addStack();
+  list.layoutVertically();
+  if (opts.tappable !== false) {
+    caption.row.url = unreviewedTapUrl(data);
+    list.url = unreviewedTapUrl(data);
+  }
+  addUnreviewedItems(list, data, config);
+}
+
+// Large layout: metric columns across the width plus the unreviewed list below.
 function addOverview(mainStack, data, config) {
   const metricRow = addMetricRow(mainStack, data, config);
   metricRow.url = budgetTapUrl(data);
@@ -1316,9 +1540,7 @@ function addOverview(mainStack, data, config) {
   const unreviewed = mainStack.addStack();
   unreviewed.layoutVertically();
   unreviewed.spacing = STACK_SPACING;
-  unreviewed.url = unreviewedTapUrl(data);
-  addCaption(unreviewed, "Unreviewed", config.caption);
-  addUnreviewedItems(unreviewed, data, config);
+  addUnreviewedSection(unreviewed, data, config);
 }
 
 // Medium layout: metrics top-aligned on the left, unreviewed transactions on the right
@@ -1337,18 +1559,14 @@ function addReviewSplit(mainStack, data, config) {
   const right = row.addStack();
   right.layoutVertically();
   right.layoutWeight = LIST_WEIGHT;
-  const caption = addCaption(right, "Unreviewed", config.caption, true);
-  caption.row.url = unreviewedTapUrl(data);
-  const list = right.addStack();
-  list.layoutVertically();
-  list.url = unreviewedTapUrl(data);
-  addUnreviewedItems(list, data, config);
+  addUnreviewedSection(right, data, config, { alignLeft: true });
   right.addSpacer();
 }
 
-// Lock-screen rectangular accessory: a Leftover line, an Unreviewed caption,
-// and as many transaction rows as the accessory's height allows — no header,
-// no metrics columns. Rows fit via the same addUnreviewedItems budget path as
+// Lock-screen rectangular accessory: a Leftover line, an Unreviewed caption
+// (with a Delete Pending label above it when transactions await deletion), and
+// as many transaction rows as the accessory's height allows — no header, no
+// metrics columns. Rows fit via the same addUnreviewedItems budget path as
 // the medium review list; the trailing flex spacer absorbs the leftover points.
 function addAccessoryRectangular(mainStack, data, config) {
   const leftover = mainStack.addStack();
@@ -1364,8 +1582,12 @@ function addAccessoryRectangular(mainStack, data, config) {
 
   const unreviewed = mainStack.addStack();
   unreviewed.layoutVertically();
-  addCaption(unreviewed, "Unreviewed", config.caption, true);
-  addUnreviewedItems(unreviewed, data, config);
+  addUnreviewedSection(unreviewed, data, config, {
+    alignLeft: true,
+    stretch: true,
+    color: brandYellow,
+    tappable: false
+  });
   mainStack.addSpacer();
 }
 
@@ -1439,33 +1661,50 @@ function addUnreviewedItems(parent, data, config) {
 
 // Vertical points available to the unreviewed list after padding, header,
 // spacers, metric rows, and the section caption are accounted for
-function listHeightBudget(config) {
+function listHeightBudget(data, config) {
   const height = WIDGET_HEIGHTS[config.layout];
   if (config.layout === "review") {
-    // medium: list shares the row's fixed height with the metrics column
-    return height - PADDING_Y - headerHeight(config) - REVIEW_GAP - lineHeight(config.caption);
+    // medium: list shares the row's fixed height with the metrics column; the
+    // top Delete Pending badge reserves its line + LIST_BOTTOM_SLACK
+    // (deletePendingBadgeHeight) before the rows. The header and caption are
+    // reserved at the LEAN line box — WidgetKit lays text tighter than
+    // Font.lineHeight (the same visible slack the small widget's badge line
+    // lives in) — so the rows pick up the space that actually shows instead of
+    // leaving it empty.
+    const header = leanLineHeight(TITLE_SIZE) + headerBlockGap(config)
+      + leanLineHeight(PERIOD_SIZE) + (config.headerPad || 0);
+    return height - PADDING_Y - header - REVIEW_GAP
+      - leanLineHeight(config.caption) - deletePendingBadgeHeight(data, config);
   }
   if (config.layout === "accessoryRectangular") {
     // rectangular accessory: leftover line + caption above the list, with tight
     // lock-screen margins (ACC_PAD_TOP / ACC_PAD_BOTTOM / ACC_HEADER_GAP) plus
     // ACC_SLACK so the last row never touches the widget's bottom edge. The
-    // leftover line's height is whichever of its caption/amount is taller.
-    const leftoverLine = Math.max(lineHeight(config.amount), lineHeight(config.caption));
+    // leftover line's height is whichever of its caption/amount is taller; a
+    // Delete Pending badge reserves its own line (deletePendingBadgeHeight)
+    // above the caption, exactly as in the review budget.
+    const leftoverLine = Math.max(monoLineHeight(config.amount), lineHeight(config.caption));
     return height - pad(config, "padTop", ACC_PAD_TOP) - pad(config, "padBottom", ACC_PAD_BOTTOM)
-      - leftoverLine - ACC_HEADER_GAP - lineHeight(config.caption) - ACC_SLACK;
+      - leftoverLine - ACC_HEADER_GAP - lineHeight(config.caption)
+      - deletePendingBadgeHeight(data, config) - ACC_SLACK;
   }
   if (config.layout === "overview") {
-    const metricRowH = lineHeight(config.caption) + STACK_SPACING + lineHeight(config.amount);
-    return height - PADDING_Y - headerHeight(config) - OVERVIEW_GAP - metricRowH - LIST_BODY_GAP - lineHeight(config.caption);
+    const metricRowH = lineHeight(config.caption) + STACK_SPACING + monoLineHeight(config.amount);
+    return height - PADDING_Y - headerHeight(config) - OVERVIEW_GAP - metricRowH
+      - LIST_BODY_GAP - lineHeight(config.caption) - deletePendingBadgeHeight(data, config);
   }
   return 0;
 }
 
 // One transaction row: text line plus the trailing ROW_GAP spacer between rows.
-// The trailing spacer MUST match the +ROW_GAP in rowFitHeight so the fitted row
-// count matches what the render actually draws (see addTransactionRow).
+// Rows render in regular Monospaced Menlo (monoFont), so the pitch is measured
+// with monoRegularLineHeight — the exact font the rows draw in, never
+// lineHeight (Avenir, the small widget's measure) and never Menlo-Bold (that's
+// the amounts' measure, monoLineHeight). The trailing spacer MUST match the
+// +ROW_GAP in rowFitHeight so the fitted row count matches what the render
+// actually draws (see addTransactionRow).
 function rowFitHeight(config) {
-  return lineHeight(detailFontSize(config)) + ROW_GAP;
+  return monoRegularLineHeight(detailFontSize(config)) + ROW_GAP;
 }
 
 // How many rows fit: the budget divided by the row pitch. The trailing
@@ -1474,7 +1713,7 @@ function rowFitHeight(config) {
 function maxUnreviewedCount(data, config) {
   const items = data.unreviewed || [];
   if (items.length === 0) return 0;
-  const count = Math.max(1, Math.floor(listHeightBudget(config) / rowFitHeight(config)));
+  const count = Math.max(1, Math.floor(listHeightBudget(data, config) / rowFitHeight(config)));
   return Math.min(items.length, count);
 }
 
@@ -1526,6 +1765,10 @@ function addUnreviewedEmpty(parent, status, config) {
 function addTransactionRow(parent, t, config) {
   const row = parent.addStack();
   row.layoutHorizontally();
+  // The rectangular accessory's Menlo rows sit a hair left of the Avenir
+  // captions/badge (the faces' left bearings differ), so they take a
+  // MENLO_LEFT_INSET leading nudge to share the caption's visual left edge.
+  if (config.layout === "accessoryRectangular") row.addSpacer(MENLO_LEFT_INSET);
   const fontSize = detailFontSize(config);
   // The payee is capped by the row's real width (medium review list column or
   // rectangular accessory inner width) so a long name truncates with "…"
@@ -1620,8 +1863,12 @@ function addCenteredText(parent, text, style) {
 // flexible spacers on both sides so the text pins mid-width, left-aligned lines
 // hug the text with no spacer (a trailing flex spacer inflates the row's
 // implicit width and widens the column), and right-aligned lines add a leading
-// flex spacer. Returns { row, label } so callers can tweak the text or append
-// fixed spacers afterwards.
+// flex spacer. stretch makes a left-aligned row span the column anyway (a
+// trailing flex spacer), so under WidgetKit's lock-screen stacking — which
+// centers children that don't fill — the line pins to the same flush-left edge
+// as the full-width transaction rows instead of floating right; on the
+// home-screen stacks (leading/fill default) the extra spacer is invisible.
+// Returns { row, label } so callers can tweak the text or append fixed spacers.
 function addTextRow(parent, text, options) {
   const align = options.alignRight ? "right" : options.alignLeft ? "left" : "center";
   const row = parent.addStack();
@@ -1637,16 +1884,18 @@ function addTextRow(parent, text, options) {
     label.rightAlignText();
   } else {
     label.leftAlignText();
+    if (options.stretch) row.addSpacer();
   }
   return { row, label };
 }
 
 // Bold yellow label (e.g. "Inflow", "Leftover"); centered unless alignLeft is set
-function addCaption(parent, text, size, alignLeft) {
+function addCaption(parent, text, size, alignLeft, stretch) {
   return addTextRow(parent, text, {
     font: boldFont(size),
     color: brandYellow,
-    alignLeft
+    alignLeft,
+    stretch
   });
 }
 
