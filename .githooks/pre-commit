@@ -1,0 +1,41 @@
+#!/bin/sh
+# Pre-commit hook: fail fast on syntax errors before anything is committed.
+# Snapshot-only changes are safe to skip, but pretty much every change here
+# touches index.js.
+
+if git diff --cached --name-only --diff-filter=ACM | grep -qE '(^|/)index\.js$'; then
+  node --check index.js || {
+    echo "pre-commit: index.js failed syntax check (node --check)"
+    echo "Fix the syntax error and re-stage before committing."
+    exit 1
+  }
+fi
+
+# Run the pure-logic test suite when index.js or the tests themselves changed.
+if git diff --cached --name-only --diff-filter=ACM | grep -qE '(^|/)(index\.js|test/)'; then
+  node --test test/*.test.js || {
+    echo "pre-commit: test suite failed."
+    echo "Run \`node --test test/*.test.js\` and fix failures before committing."
+    exit 1
+  }
+fi
+
+# Every release-style tag (vN…) must have a matching CHANGELOG.md entry. git has
+# no hook for creating tags, so a manual \`git tag vN\` otherwise slips through;
+# this check makes the next commit refuse to land until the changelog is
+# reconciled with the tag.
+STALE_TAG=""
+for tag in $(git for-each-ref --format='%(refname:short)' refs/tags); do
+  case "$tag" in
+    v[0-9]*)
+      if ! grep -qE "^## $tag\b" CHANGELOG.md; then STALE_TAG="$tag"; fi
+      ;;
+  esac
+done
+if [ -n "$STALE_TAG" ]; then
+  echo "pre-commit: release tag \`$STALE_TAG\` has no CHANGELOG.md entry."
+  echo "Add a \`## $STALE_TAG — YYYY-MM-DD\` heading above \`## Unreleased\` and re-stage (see the finalize-release skill)."
+  exit 1
+fi
+
+exit 0

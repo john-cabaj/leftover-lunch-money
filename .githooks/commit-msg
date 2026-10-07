@@ -1,0 +1,13 @@
+#!/bin/sh
+# Commit-msg hook: enforce conventional prefixes (per AGENTS.md Git Workflow):
+# fix:, feat:, refactor:, style:, docs:
+
+MSG="$(cat "$1" | head -1)"
+
+if printf '%s' "$MSG" | grep -qE '^(fix|feat|refactor|style|docs): '; then
+  exit 0
+fi
+
+echo "commit-msg: message must start with one of \`fix:\`, \`feat:\`, \`refactor:\`, \`style:\`, \`docs:\`"
+echo "Got: $MSG"
+exit 1

@@ -35,6 +35,25 @@
  ******************************************************************************/
 
 /****************************************************
+             SECTION INDEX
+******************************************************
+ * Search for these banner headings to jump between the file's regions.        *
+ *   CONFIGURATION              constants: fonts, colors, metrics, API, cache  *
+ *   SETUP                      tap routing, boot sequence, widget rendering   *
+ *   DATA LAYER - API + cache   requests, caching, data assembly               *
+ *   LEFTOVER CALCULATION       computeLeftover and its helpers                *
+ *   UTILITIES - formatting + calendar   money/date formatting, period math    *
+ *   STORAGE                    on-disk cache + diagnostics                    *
+ *   WIDGET LAYOUTS             per-family renderers, row-fit math             *
+ *   UI PRIMITIVES              shared addTextRow and friends                  *
+ *                                                                             *
+ * The pure functions (LEFTOVER CALCULATION, UTILITIES, and the tap-URL        *
+ * builders in CONFIGURATION) are covered by test/pure-core.test.js, which    *
+ * extracts this file by marker and evaluates the regions in plain Node —     *
+ * keep the function signatures and their boundary comments intact.           *
+ ******************************************************************************/
+
+/****************************************************
              CONFIGURATION
 *****************************************************/
 
@@ -1180,9 +1199,7 @@ function addMonthsClamped(date, n) {
   const day = date.getDate();
   const target = new Date(date.getFullYear(), date.getMonth() + n, 1);
   const lastDay = new Date(target.getFullYear(), target.getMonth() + 1, 0).getDate();
-  date.setFullYear(target.getFullYear());
-  date.setMonth(target.getMonth());
-  date.setDate(Math.min(day, lastDay));
+  date.setFullYear(target.getFullYear(), target.getMonth(), Math.min(day, lastDay));
 }
 
 // Walks the anchor date until the period containing the target date is found:
@@ -1201,8 +1218,10 @@ function getBudgetPeriodForDate(settings, targetDate) {
       periodStart = addBudgetPeriod(periodStart, settings, -1);
     }
   } else {
-    while (addBudgetPeriod(periodStart, settings, 1) <= target) {
-      periodStart = addBudgetPeriod(periodStart, settings, 1);
+    let next = addBudgetPeriod(periodStart, settings, 1);
+    while (next <= target) {
+      periodStart = next;
+      next = addBudgetPeriod(periodStart, settings, 1);
     }
   }
 
