@@ -4,7 +4,7 @@ An iOS widget built with [Scriptable](https://scriptable.app) that shows a refle
 
 ## Architecture
 
-- Single-file widget: `index.js` — no build process, dependencies, or tests
+- Single-file widget: `index.js` — no build process or dependencies; a pure-logic test suite lives in `test/` (see Development Notes)
 - Runs as a home-screen widget via the Scriptable app on iPhone/iPad
 - Pulls period totals, category data, and unreviewed transactions from the Lunch Money API, then computes the period leftover
 - API key is stored in the iOS Keychain (not in the widget code); the Scriptable setup prompt asks the user to paste their own key
@@ -12,6 +12,8 @@ An iOS widget built with [Scriptable](https://scriptable.app) that shows a refle
   - `lunchMoneyCache` — current period
   - `lunchMoneyCache_previous` — previous period
 - Cache freshness is 10 minutes (`CACHED_MS`); if a fetch fails and the cache has expired, the stale copy is used as a fallback
+- The widget asks WidgetKit to reload at `widget.refreshAfterDate` (now + `CACHED_MS`) so a run lands near expiry instead of waiting on iOS's own schedule
+- A non-2xx (or malformed) API response is treated as a failed fetch, so the stale copy is used instead of caching an empty/error result; a widget render never opens the API-key prompt (it shows the setup state)
 
 ## Widget Parameters
 

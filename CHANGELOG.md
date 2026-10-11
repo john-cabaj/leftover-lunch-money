@@ -4,6 +4,30 @@ All notable changes to this widget. Releases follow the repo's `refs/tags/vN`
 tags; commit messages use conventional prefixes (`fix:`, `feat:`, `refactor:`,
 `style:`, `docs:`).
 
+## v5 — 2026-10-11
+
+- `fix`: the widget now asks WidgetKit to reload its timeline via
+  `widget.refreshAfterDate` (now + `CACHED_MS`) instead of deferring entirely to
+  iOS's background-refresh schedule, so the "last updated" time no longer
+  stalls for hours; the refresh hint is aligned with the 10-minute cache window.
+- `fix`: `sendLunchMoneyRequest` rejects on a non-2xx status. The API's JSON
+  error bodies (e.g. a 401 `{"message":"Unauthorized"}` from a bad/expired key)
+  were parsed as data and cached with a fresh `lastUpdated`; they now fall
+  through to the last good stale cache.
+- `fix`: a malformed 2xx body is treated as a failed fetch too — a `/summary`
+  or `/categories` response without a categories array no longer caches an
+  empty leftover, and a `/transactions` response without a transactions array
+  reports "failed" instead of an empty list. The API's `{message, errors}`
+  error envelope is also rejected, so a bad key fails safely even if
+  `request.response` is unavailable.
+- `fix`: a widget render no longer tries to present the API-key prompt (a
+  widget can't show an alert); it renders the "add your key" state instead. A
+  failed cache write is now best-effort, so freshly fetched data still renders.
+- `fix`: `sendLunchMoneyRequest` caps every API call at a 10-second timeout
+  (`REQUEST_TIMEOUT`) instead of Scriptable's 60-second default, so an
+  unresponsive API fails fast and falls through to the stale cache rather than
+  the widget being killed with "Timeout while running script".
+
 ## v4 — 2026-10-06
 
 - `docs`: moved AGENTS.md's domain rules into on-demand opencode skills and

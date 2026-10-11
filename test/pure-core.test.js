@@ -239,6 +239,11 @@ describe('computeLeftover', () => {
     assert.equal(pure.computeLeftover({}, FIXTURE_CATEGORIES), null);
     assert.equal(pure.computeLeftover(undefined, FIXTURE_CATEGORIES), null);
   });
+  test('returns null when either response lacks its categories array', () => {
+    assert.equal(pure.computeLeftover(FIXTURE_SUMMARY, {}), null);
+    assert.equal(pure.computeLeftover(FIXTURE_SUMMARY, undefined), null);
+    assert.equal(pure.computeLeftover({ categories: 'nope' }, FIXTURE_CATEGORIES), null);
+  });
 });
 
 describe('per-category income max (over-performer not masked by under-budget)', () => {

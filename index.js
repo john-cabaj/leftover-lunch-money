@@ -145,6 +145,12 @@ const MAX_SIGNED_MONEY = "+$999,999.99";
 // --------------------------------------------------------------------------
 const BASE_URL = 'https://api.lunchmoney.dev/v2';
 
+// Scriptable's Request defaults to a 60-second idle timeout — far longer than
+// WidgetKit lets a widget run. Cap each call so an unresponsive API fails fast
+// and the callers fall back to the stale cache (getAllData) instead of the
+// widget being killed with "Timeout while running script".
+const REQUEST_TIMEOUT = 10; // seconds
+
 // Tap targets (web versions of the Lunch Money app deep links): the widget-wide
 // default opens the transactions list; the metrics and unreviewed regions
 // override it with their own targets. Budget deep-links by the displayed
@@ -711,6 +717,11 @@ async function presentWebPage(url) {
 async function getWidget() {
   const widget = new ListWidget();
   widget.title = "Lunch Money";
+  // Ask WidgetKit to reload the timeline no earlier than when the cache goes
+  // stale, so a run lands right after CACHED_MS and fetches fresh data. This is
+  // only a hint — iOS budgets background reloads and often delays it — but
+  // without it the widget defers entirely to iOS's schedule (hours).
+  widget.refreshAfterDate = new Date(Date.now() + CACHED_MS);
 
   const widgetFamily = config.widgetFamily;
   const layoutConfig = FAMILY_LAYOUTS[widgetFamily] || FAMILY_LAYOUTS.undefined;
@@ -829,6 +840,9 @@ async function getApiKey() {
   if (Keychain.contains(API_KEY)) {
     return Keychain.get(API_KEY);
   }
+  // A widget render can't present the setup prompt; return empty so the widget
+  // shows its "add your key" state instead of erroring on a failed Alert.
+  if (config.runsInWidget) return "";
   const alert = new Alert();
   alert.addSecureTextField("api_key", "");
   alert.addAction("OK");
@@ -866,8 +880,13 @@ async function lunchMoneyLeftoverInfo() {
       fetchUnreviewedTransactions(range),
       fetchDeletePendingTransactions(range)
     ]);
+    const leftover = computeLeftover(summary, categories);
+    // A 200 with an unexpected shape yields no leftover; treat it as a failed
+    // fetch so getAllData falls back to the last good cache instead of caching
+    // an empty result with a fresh timestamp.
+    if (!leftover) return null;
     return {
-      ...computeLeftover(summary, categories),
+      ...leftover,
       periodLabel: periodLabelFor(settings, range),
       periodStart: range.start_date,
       periodEnd: range.end_date,
@@ -892,7 +911,12 @@ async function fetchTransactions(range, status, includePending = false) {
     status,
     ...(includePending ? { include_pending: true } : {})
   });
-  return (data && data.transactions) || [];
+  // A 200 without a transactions array is a malformed response, not an empty
+  // list: throw so the wrappers report "failed" rather than "empty".
+  if (!data || !Array.isArray(data.transactions)) {
+    throw new Error(`/transactions (${status}) returned no transactions array`);
+  }
+  return data.transactions;
 }
 
 // Recent transactions awaiting review in the period, newest first. Filters
@@ -939,8 +963,13 @@ async function fetchDeletePendingTransactions(range) {
 }
 
 // GET request against the Lunch Money API: path is relative to BASE_URL (e.g.
-// "/summary"). Adds the API key as a Bearer token and URL-encodes query params.
-function sendLunchMoneyRequest(path, params = {}) {
+// "/summary"). Adds the API key as a Bearer token and appends the query-string
+// suffix built from params.
+// Rejects on a non-2xx status: the API returns JSON error bodies (e.g. a 401
+// {"message":"Unauthorized"} for a bad/expired key), and loadJSON would happily
+// parse those as data — caching the error object with a fresh lastUpdated
+// instead of letting getAllData fall back to the last good stale copy.
+async function sendLunchMoneyRequest(path, params = {}) {
   const headers = {
     'Authorization': LM_ACCESS_TOKEN.includes("Bearer") ? LM_ACCESS_TOKEN : `Bearer ${LM_ACCESS_TOKEN}`,
     'Content-Type': 'application/json'
@@ -948,7 +977,17 @@ function sendLunchMoneyRequest(path, params = {}) {
   const request = new Request(BASE_URL + path + buildQueryString(params));
   request.headers = headers;
   request.method = 'GET';
-  return request.loadJSON();
+  request.timeoutInterval = REQUEST_TIMEOUT;
+  const data = await request.loadJSON();
+  const status = request.response ? request.response.statusCode : 200;
+  // The API tags errors with a {message, errors} envelope that no endpoint uses
+  // as a payload; treat it as an error too, so a bad key still fails safely if
+  // the runtime didn't populate request.response.
+  const apiError = data && typeof data.message === "string" && "errors" in data;
+  if (status < 200 || status >= 300 || apiError) {
+    throw new Error(`Lunch Money API ${path} failed (HTTP ${status})`);
+  }
+  return data;
 }
 
 // "?key=value&..." query suffix, or "" when there are no params
@@ -1102,9 +1141,14 @@ function incomeInflow(summary, categories) {
 // per-category max of expected vs realized (incomeInflow) — plus the rollover
 // pool balance carried into it. Outflow is what every category row commits to
 // spend plus the uncategorized spend that lives outside all rows, so
-// non-budget spending still shrinks the leftover.
+// non-budget spending still shrinks the leftover. Returns null when either
+// response lacks the arrays the math depends on, so a malformed 200 falls back
+// to the last good cache instead of caching an empty result.
 function computeLeftover(summary, categories) {
   if (!summary || !Array.isArray(summary.categories)) {
+    return null;
+  }
+  if (!categories || !Array.isArray(categories.categories)) {
     return null;
   }
 
@@ -1344,11 +1388,17 @@ function writeDiagnostics(line) {
   }
 }
 
-// Persists the latest result to the cache file
+// Persists the latest result to the cache file. Best-effort: a failed write
+// must not discard freshly fetched data, so the widget still renders this run
+// and the next run simply re-fetches.
 function writeCache(data) {
-  const fm = FileManager.local();
-  ensureWidgetFolder();
-  fm.writeString(cachePath(), JSON.stringify(data));
+  try {
+    const fm = FileManager.local();
+    ensureWidgetFolder();
+    fm.writeString(cachePath(), JSON.stringify(data));
+  } catch (e) {
+    // ignore: rendering proceeds with the in-memory result
+  }
 }
 
 /****************************************************
