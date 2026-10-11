@@ -43,7 +43,7 @@
  *   DATA LAYER - API + cache   requests, caching, data assembly               *
  *   LEFTOVER CALCULATION       computeLeftover and its helpers                *
  *   UTILITIES - formatting + calendar   money/date formatting, period math    *
- *   STORAGE                    on-disk cache                                  *
+ *   STORAGE                    on-disk cache + stray-file sweep               *
  *   WIDGET LAYOUTS             per-family renderers, row-fit math             *
  *   UI PRIMITIVES              shared addTextRow and friends                  *
  *                                                                             *
@@ -260,7 +260,13 @@ const SHOW_PREVIOUS_PERIOD = WIDGET_PARAMETER === "previous";
 // period's cached data (or vice versa).
 const BASE_FILE = 'LunchMoneyWidget';
 const API_KEY = "lunchMoneyApiKey";
-const CACHE_KEY = SHOW_PREVIOUS_PERIOD ? "lunchMoneyCache_previous" : "lunchMoneyCache";
+// The two period cache files. CACHE_KEY is the one this run reads/writes; the
+// sweep in STORAGE keeps BOTH, so a "current" run never deletes the "previous"
+// cache (or vice versa).
+const CURRENT_CACHE_KEY = "lunchMoneyCache";
+const PREVIOUS_CACHE_KEY = "lunchMoneyCache_previous";
+const CACHE_FILE_NAMES = [CURRENT_CACHE_KEY, PREVIOUS_CACHE_KEY];
+const CACHE_KEY = SHOW_PREVIOUS_PERIOD ? PREVIOUS_CACHE_KEY : CURRENT_CACHE_KEY;
 const CACHED_MS = 600000; // 10 minutes
 
 // v2 renamed "uncleared" to "unreviewed"; match either so accounts mid-migration work
@@ -615,6 +621,7 @@ if (tapTarget) {
   // Scriptable. Intentionally no App.close(): closing here was what sent a
   // cold-started tap whose URL arguments arrived late (or not at all) straight
   // back to the home screen.
+  sweepWidgetStorage();
   LM_ACCESS_TOKEN = await getApiKey();
   const widget = await getWidget();
 
@@ -1375,6 +1382,24 @@ function writeCache(data) {
     fm.writeString(cachePath(), JSON.stringify(data));
   } catch (e) {
     // ignore: rendering proceeds with the in-memory result
+  }
+}
+
+// Best-effort janitor for Scriptable's widget folder: removes every entry that
+// isn't a current period cache (CACHE_FILE_NAMES), so retired or unexpected
+// files — the dropped diagnostics.txt, OS cruft like .DS_Store, anything a
+// future version stops using — can't linger on device. Runs on the boot path
+// only and never touches the caches, so it's cache-safe on every run.
+function sweepWidgetStorage() {
+  const fm = FileManager.local();
+  const folder = widgetFolder();
+  try {
+    if (!fm.fileExists(folder)) return;
+    for (const entry of fm.listContents(folder)) {
+      if (!CACHE_FILE_NAMES.includes(entry)) fm.remove(folder + "/" + entry);
+    }
+  } catch (e) {
+    // best-effort: a failed sweep must not block the boot sequence
   }
 }
 

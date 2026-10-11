@@ -6,11 +6,18 @@ tags; commit messages use conventional prefixes (`fix:`, `feat:`, `refactor:`,
 
 ## v6 — 2026-10-11
 
+- `feat`: the boot path now sweeps Scriptable's widget folder on every run
+  (`sweepWidgetStorage`), deleting every file that isn't one of the two period
+  caches. Files a prior version stopped using — most notably the dropped
+  `diagnostics.txt` — and any other stray/unknown file can no longer linger on
+  device, while both caches (`lunchMoneyCache` / `lunchMoneyCache_previous`) are
+  always kept, so caching is unaffected. The sweep runs only on the boot path,
+  never on a tap.
 - `refactor`: dropped the on-device `diagnostics.txt` log entirely. Tap-routing
   and transaction-fetch diagnostics are no longer appended, so the per-period
   cache (`lunchMoneyCache` / `lunchMoneyCache_previous`) is now the only file the
   widget writes to Scriptable's Documents dir; unlike the old append-only log,
-  the cache is overwritten each run and never grows unbounded. one `LEFTOVER_LABEL`
+  the cache is overwritten each run and never grows unbounded. One `LEFTOVER_LABEL`
   constant now feeds the METRICS row and every leftover caption
   (error state, breakdown, accessories), and `deletePendingBadgeHeight` reuses
   `hasDeletePending` instead of re-deriving the same predicate; stale

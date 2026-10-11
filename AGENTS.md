@@ -11,6 +11,7 @@ An iOS widget built with [Scriptable](https://scriptable.app) that shows a refle
 - Cache lives under Scriptable's local Documents dir (`LunchMoneyWidget/`), keyed per period:
   - `lunchMoneyCache` — current period
   - `lunchMoneyCache_previous` — previous period
+- The boot path runs `sweepWidgetStorage()`, a best-effort janitor that deletes every file in `LunchMoneyWidget/` except the two cache files — so retired files (the dropped `diagnostics.txt`) and other stray/unknown files can't linger on device
 - Cache freshness is 10 minutes (`CACHED_MS`); if a fetch fails and the cache has expired, the stale copy is used as a fallback
 - The widget asks WidgetKit to reload at `widget.refreshAfterDate` (now + `CACHED_MS`) so a run lands near expiry instead of waiting on iOS's own schedule
 - A non-2xx (or malformed) API response is treated as a failed fetch, so the stale copy is used instead of caching an empty/error result; a widget render never opens the API-key prompt (it shows the setup state)
