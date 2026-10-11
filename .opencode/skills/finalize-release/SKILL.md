@@ -49,5 +49,14 @@ Behavior must be provably unchanged except where the refactor intentionally simp
 When verification passes:
 
 - Commit the finalized changes with a conventional prefix per Git Workflow (write concise messages; never push). The CHANGELOG entry travels with the release commit.
+- ONLY if this finalize is creating a NEW tag (a release bump): move every
+  reference to the PREVIOUS release tag up to the new one. Grep the whole repo
+  for the old tag name (e.g. `v5`); the surviving spot at release time is
+  usually `README.md`'s raw install link (`.../refs/tags/vN/index.js`). Update
+  each hit, commit with a `docs:` prefix, and if that commit lands after the
+  tag was created, move the tag to the new HEAD so the baseline is the final
+  commit. Never push. If the finalize is a code pass WITHOUT a new tag, skip
+  this step entirely — pointing references at a tag that doesn't exist would
+  break the install link.
 - Confirm the baseline marker with the user (e.g. the release version/tag name — the repo uses `refs/tags/vN` releases); create the tag locally as the baseline. Never push.
 - Report the final message and tag clearly as the baseline in your response.

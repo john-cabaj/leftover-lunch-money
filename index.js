@@ -43,7 +43,7 @@
  *   DATA LAYER - API + cache   requests, caching, data assembly               *
  *   LEFTOVER CALCULATION       computeLeftover and its helpers                *
  *   UTILITIES - formatting + calendar   money/date formatting, period math    *
- *   STORAGE                    on-disk cache + diagnostics                    *
+ *   STORAGE                    on-disk cache                                  *
  *   WIDGET LAYOUTS             per-family renderers, row-fit math             *
  *   UI PRIMITIVES              shared addTextRow and friends                  *
  *                                                                             *
@@ -120,10 +120,14 @@ function formatUpdateTime(timestamp) {
 // Layouts pick their own display ORDER and per-metric sizes; this table only
 // guarantees the same value and style logic everywhere.
 // --------------------------------------------------------------------------
+// The leftover row's display label, shared by the METRICS table and every
+// place that titles the leftover figure (error state, breakdown, accessories)
+// so the wording can't drift between them.
+const LEFTOVER_LABEL = "Leftover";
 const METRICS = [
-  { id: "inflow",   label: "Inflow",   value: (d) => Math.abs(d.inflow), color: regularColor },
-  { id: "outflow",  label: "Outflow",  value: (d) => d.outflow,         color: regularColor },
-  { id: "leftover", label: "Leftover", value: (d) => d.savings,         color: undefined }
+  { id: "inflow",   label: "Inflow",       value: (d) => Math.abs(d.inflow), color: regularColor },
+  { id: "outflow",  label: "Outflow",      value: (d) => d.outflow,          color: regularColor },
+  { id: "leftover", label: LEFTOVER_LABEL, value: (d) => d.savings,          color: undefined }
 ];
 function getMetric(id) { return METRICS.find((m) => m.id === id); }
 
@@ -249,7 +253,7 @@ const OUTFLOW_FIELDS = ["uncategorized", "uncategorized_recurring"];
 const WIDGET_PARAMETER = String(args.widgetParameter || "").trim().toLowerCase();
 const SHOW_PREVIOUS_PERIOD = WIDGET_PARAMETER === "previous";
 
-// BASE_FILE: folder (under Scriptable's Documents dir) for cache + diagnostics;
+// BASE_FILE: folder (under Scriptable's Documents dir) for the cache;
 // API_KEY: the Keychain entry holding the API token;
 // CACHE_KEY + CACHED_MS: cache file name and how long a fresh copy stays usable.
 // The cache is split by period so a "previous" request never serves the current
@@ -270,12 +274,11 @@ const MONTHS = ["January", "February", "March", "April", "May", "June", "July", 
 // --------------------------------------------------------------------------
 
 // Real rendered line heights read from Scriptable's font metrics, so row
-// budgets match how text actually lays out. The old text-height heuristic
-// under-measured Avenir, so a full list overflowed the widget and Scriptable
-// pushes excess content off the TOP of the widget — clipping the LUNCH MONEY
-// title. Budgets now measure each family's actual line height; the fallback
-// factors keep running on runtimes without Font.lineHeight. LINE_HEIGHT_FACTOR
-// (≈1.15×) is Menlo's tight line box, used by the small widget's amount fit.
+// budgets match how text actually lays out; a budget that under-measures lets a
+// full list overflow, and Scriptable pushes the excess off the TOP of the
+// widget — clipping the LUNCH MONEY title. The fallback factors keep this
+// working on runtimes without Font.lineHeight. LINE_HEIGHT_FACTOR (≈1.15×) is
+// Menlo's tight line box, used by the small widget's amount fit.
 const LINE_HEIGHT_FACTOR = 1.15;              // Menlo height factor (small-widget fit)
 const AVENIR_LINE_HEIGHT_FALLBACK = 1.35;    // Avenir's tall line box, no Font.lineHeight
 function measureLineHeight(size, name, fallback) {
@@ -411,7 +414,7 @@ const TITLE_SIZE = 12;
 // (plural "Transactions"): one caption-weighted line in the palette's loss red
 // shown above the caption at the top of the unreviewed list column. The small
 // stacked widget (no unreviewed list) tops its metrics with the same line
-// (addStackedMetrics) instead of the retired "!" glyph.
+// (addStackedMetrics).
 const BADGE_PENDING_LABEL = "Deleted Transactions Pending!";
 const PERIOD_SIZE = 11;
 function headerBlockGap(config) {
@@ -458,7 +461,7 @@ function headerHeight(config) {
 // one line, and never near the width edge or the top clip zone.
 const LIST_BOTTOM_SLACK = 2; // guaranteed gap under the last row / badge line
 function deletePendingBadgeHeight(data, config) {
-  if (!data || !config || (data.deletePendingCount || 0) <= 0) return 0;
+  if (!config || !hasDeletePending(data)) return 0;
   if (config.layout !== "review" && config.layout !== "overview" && config.layout !== "accessoryRectangular") return 0;
   return leanLineHeight(config.caption) + LIST_BOTTOM_SLACK;
 }
@@ -582,7 +585,6 @@ async function resolveTap() {
   const target = tappedTarget();
   if (target) return target;
   if (cameFromTap()) {
-    writeDiagnostics("tap ran without a url argument; opening the fallback transactions view");
     return fallbackTapUrl();
   }
   return "";
@@ -671,10 +673,8 @@ async function fallbackTapUrl() {
     LM_ACCESS_TOKEN = Keychain.get(API_KEY);
     const settings = await sendLunchMoneyRequest("/budgets/settings");
     const range = getPeriodRange(settings, tapShowsPreviousPeriod());
-    writeDiagnostics("tap fallback: transactions for " + range.start_date + ".." + range.end_date);
     return transactionsTapUrl({ periodStart: range.start_date, periodEnd: range.end_date });
   } catch (e) {
-    writeDiagnostics("tap fallback period lookup failed: " + e);
     return WEB_APP_URL + "/transactions";
   }
 }
@@ -696,15 +696,14 @@ function tapShowsPreviousPeriod() {
 // would delay presentation until the page finishes (and hang forever on a page
 // that never finishes), while presenting first lets the page stream in behind
 // an open view. present() resolves only when the user closes the WebView, so
-// the page stays on screen until then. A load error is logged, and a failed
-// presentation falls back to Safari so the tap still lands.
+// the page stays on screen until then. A failed presentation falls back to
+// Safari so the tap still lands.
 async function presentWebPage(url) {
   try {
     const webView = new WebView();
-    webView.loadURL(url).catch((e) => writeDiagnostics("tap webview load failed: " + e));
+    webView.loadURL(url).catch(() => {});
     await webView.present(true);
   } catch (e) {
-    writeDiagnostics("tap webview present failed: " + e);
     Safari.open(url);
   }
 }
@@ -786,7 +785,7 @@ async function getWidget() {
 
 // "Leftover" caption plus the given error message, centered
 function addErrorState(widget, message, config) {
-  addCaption(widget, "Leftover", config.caption);
+  addCaption(widget, LEFTOVER_LABEL, config.caption);
   addCenteredText(widget, message, {
     font: smallFont,
     color: regularColor,
@@ -926,8 +925,6 @@ async function fetchTransactions(range, status, includePending = false) {
 async function fetchUnreviewedTransactions(range) {
   try {
     const raw = await fetchTransactions(range, "unreviewed", true);
-    const counts = {};
-    raw.forEach((t) => { counts[t.status] = (counts[t.status] || 0) + 1; });
     const rows = raw
       .filter((t) => !t.is_group_parent && !t.is_group
         && t.status !== "delete_pending"
@@ -940,10 +937,8 @@ async function fetchUnreviewedTransactions(range) {
         amount: t.to_base != null ? t.to_base : parseFloat(t.amount),
         date: t.date
       }));
-    writeDiagnostics(`unreviewed ${range.start_date}..${range.end_date} raw=${raw.length} statuses=${JSON.stringify(counts)} kept=${rows.length}`);
     return { rows, status: rows.length > 0 ? "ok" : "empty" };
-  } catch (e) {
-    writeDiagnostics("unreviewed request failed: " + e);
+  } catch {
     return { rows: [], status: "failed" };
   }
 }
@@ -954,10 +949,8 @@ async function fetchUnreviewedTransactions(range) {
 async function fetchDeletePendingTransactions(range) {
   try {
     const raw = await fetchTransactions(range, "delete_pending");
-    writeDiagnostics(`delete_pending ${range.start_date}..${range.end_date} count=${raw.length}`);
     return { count: raw.length, status: raw.length > 0 ? "ok" : "empty" };
-  } catch (e) {
-    writeDiagnostics("delete_pending request failed: " + e);
+  } catch {
     return { count: 0, status: "failed" };
   }
 }
@@ -1335,13 +1328,12 @@ function periodLabelFor(settings, range) {
              STORAGE
 *****************************************************/
 
-// Path helpers: the Scriptable folder used for cache + diagnostics, and the
-// two files inside it
+// Path helpers: the Scriptable folder used for the cache, and the cache file
+// inside it
 function widgetFolder() {
   return FileManager.local().documentsDirectory() + "/" + BASE_FILE;
 }
 function cachePath() { return widgetFolder() + "/" + CACHE_KEY; }
-function diagnosticsPath() { return widgetFolder() + "/diagnostics.txt"; }
 
 // Cache file modification time (ms since epoch); returns now on any error
 function cacheModTime() {
@@ -1371,21 +1363,6 @@ function readCache(allowStale) {
     // unreadable or corrupt cache: treat as a miss
   }
   return null;
-}
-
-// Appends one timestamped line to LunchMoneyWidget/diagnostics.txt in the
-// Scriptable folder, so diagnostics are readable from the Files app even when
-// the in-app preview hides the console
-function writeDiagnostics(line) {
-  try {
-    const fm = FileManager.local();
-    ensureWidgetFolder();
-    const path = diagnosticsPath();
-    const prev = fm.fileExists(path) ? fm.readString(path) : "";
-    fm.writeString(path, prev + new Date().toISOString() + " " + line + "\n");
-  } catch (e) {
-    // never block rendering on diagnostics
-  }
 }
 
 // Persists the latest result to the cache file. Best-effort: a failed write
@@ -1427,7 +1404,7 @@ function addBreakdownSection(parent, data, config) {
   const budget = parent.addStack();
   budget.layoutVertically();
   budget.url = budgetTapUrl(data);
-  addCaption(budget, "Leftover", config.caption);
+  addCaption(budget, LEFTOVER_LABEL, config.caption);
   addAmount(budget, data.savings, { size: config.amount });
   budget.addSpacer(LIST_BODY_GAP);
   addBreakdown(budget, data, detailFontSize(config));
@@ -1441,13 +1418,11 @@ function addBreakdownSection(parent, data, config) {
 // Delete Pending label nor the metrics carry their own stack urls here (they'd
 // never fire). When synced transactions await a manual delete, the full red
 // "Deleted Transactions Pending!" label — the same caption-weighted line the
-// list layouts show — tops the metrics above the Inflow caption instead of the
-// old single "!" that rode the Leftover amount row. It needs only
+// list layouts show — tops the metrics above the Inflow caption. It needs only
 // leanLineHeight(caption) of the widget's real on-device slack (WidgetKit lays
 // Avenir tighter than Font.lineHeight — the same slack the review layout
 // reclaims for row counts), so no existing size or padding changes; a full
-// caption-weight line also reads as the alert it is (a lone glyph was a
-// razor-thin hit area, though on small no element is tappable anyway).
+// caption-weight line also reads as the alert it is.
 function addStackedMetrics(parent, data, config) {
   const stack = parent.addStack();
   stack.layoutVertically();
@@ -1525,8 +1500,8 @@ function addBrandTitle(parent, data, config) {
 // never scales down (full caption size, like the caption itself), stays on one
 // line — the label fits the narrowest list column (~188pt on the SE 1st-gen
 // medium vs ≈186pt at 13pt, and ≈143pt at the rectangular accessory's 10pt
-// caption vs a 145pt inner width), so it never needs the minScale the old
-// design used. Reserves leanLineHeight(caption) + LIST_BOTTOM_SLACK via
+// caption vs a 145pt inner width), so it never needs to scale down. Reserves
+// leanLineHeight(caption) + LIST_BOTTOM_SLACK via
 // deletePendingBadgeHeight so the list loses part of one row while it's up and
 // never runs flush against the widget's height limit (flush lists can clip the
 // widget top). The label is NOT placed inside any stack that already carries a
@@ -1644,7 +1619,7 @@ function addAccessoryRectangular(mainStack, data, config) {
   // and center-alignment lands them on the same baseline (the same arrangement
   // addDetailRow uses for its aligned label+value rows).
   leftover.centerAlignContent();
-  addCaption(leftover, "Leftover", config.caption, true);
+  addCaption(leftover, LEFTOVER_LABEL, config.caption, true);
   addAmount(leftover, data.savings, { size: config.amount, alignRight: true });
 
   mainStack.addSpacer(ACC_HEADER_GAP);
@@ -1663,13 +1638,13 @@ function addAccessoryRectangular(mainStack, data, config) {
 // Lock-screen circular accessory: the "Leftover" caption stacking above the
 // amount, both at fixed sizes from the FAMILY_LAYOUTS entry. The caption is
 // kept smaller than the amount (9 vs 13pt) so the two lines fit the ring on
-// every device — the config sizes replace the old per-render fit test.
+// every device.
 // Centered on both axes: flexible spacers above and below do the vertical
 // centering (layoutWeight is unreliable inside accessory widgets), and
 // addCaption / addAmount each center their line horizontally.
 function addAccessoryCircular(mainStack, data, config) {
   mainStack.addSpacer();
-  addCaption(mainStack, "Leftover", config.caption);
+  addCaption(mainStack, LEFTOVER_LABEL, config.caption);
   addAmount(mainStack, data.savings, { size: config.amount });
   mainStack.addSpacer();
 }
@@ -1678,7 +1653,7 @@ function addAccessoryCircular(mainStack, data, config) {
 // forces its own system typeface, so this is just "Leftover <amount>" as plain
 // text — not addAmount, which would try to use Menlo-Bold and re-center.
 function addAccessoryInline(mainStack, data, config) {
-  const label = mainStack.addText("Leftover " + formatMoney(data.savings));
+  const label = mainStack.addText(LEFTOVER_LABEL + " " + formatMoney(data.savings));
   label.textColor = regularColor;
   label.lineLimit = 1;
   label.minimumScaleFactor = 0.5;

@@ -4,6 +4,18 @@ All notable changes to this widget. Releases follow the repo's `refs/tags/vN`
 tags; commit messages use conventional prefixes (`fix:`, `feat:`, `refactor:`,
 `style:`, `docs:`).
 
+## v6 — 2026-10-11
+
+- `refactor`: dropped the on-device `diagnostics.txt` log entirely. Tap-routing
+  and transaction-fetch diagnostics are no longer appended, so the per-period
+  cache (`lunchMoneyCache` / `lunchMoneyCache_previous`) is now the only file the
+  widget writes to Scriptable's Documents dir; unlike the old append-only log,
+  the cache is overwritten each run and never grows unbounded. one `LEFTOVER_LABEL`
+  constant now feeds the METRICS row and every leftover caption
+  (error state, breakdown, accessories), and `deletePendingBadgeHeight` reuses
+  `hasDeletePending` instead of re-deriving the same predicate; stale
+  history-flavored comments were reworded to state intent.
+
 ## v5 — 2026-10-11
 
 - `fix`: the widget now asks WidgetKit to reload its timeline via

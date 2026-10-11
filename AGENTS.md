@@ -8,7 +8,7 @@ An iOS widget built with [Scriptable](https://scriptable.app) that shows a refle
 - Runs as a home-screen widget via the Scriptable app on iPhone/iPad
 - Pulls period totals, category data, and unreviewed transactions from the Lunch Money API, then computes the period leftover
 - API key is stored in the iOS Keychain (not in the widget code); the Scriptable setup prompt asks the user to paste their own key
-- Cache and diagnostics live under Scriptable's local Documents dir (`LunchMoneyWidget/`), keyed per period:
+- Cache lives under Scriptable's local Documents dir (`LunchMoneyWidget/`), keyed per period:
   - `lunchMoneyCache` — current period
   - `lunchMoneyCache_previous` — previous period
 - Cache freshness is 10 minutes (`CACHED_MS`); if a fetch fails and the cache has expired, the stale copy is used as a fallback

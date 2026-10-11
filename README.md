@@ -32,7 +32,7 @@ Tapping the widget opens the Lunch Money web app in a Scriptable WebView (inside
 
 1. Download [Scriptable](https://scriptable.app)
 2. Add new script
-3. Copy and paste the contents of [index.js](https://raw.githubusercontent.com/john-cabaj/leftover-lunch-money/refs/tags/v5/index.js) and save
+3. Copy and paste the contents of [index.js](https://raw.githubusercontent.com/john-cabaj/leftover-lunch-money/refs/tags/v6/index.js) and save
 4. Tap and hold on the script name, select rename, name the script "Leftover Lunch Money"
 
    NOTE: This is not required for functionality, but describes the script for ease of use
@@ -66,4 +66,4 @@ Tapping the widget opens the Lunch Money web app in a Scriptable WebView (inside
 <img width="210" height="210" alt="IMG_0021" src="https://github.com/user-attachments/assets/207cc057-d542-41e8-8f96-cca6c6ea5f63" />
 
 ## Privacy
-Cached data (unreviewed transactions, inflow/outflow/leftover information, pending deleted transactions) and diagnostics data are stored in Scriptable's Documents directory.
+Cached data (unreviewed transactions, inflow/outflow/leftover information, pending deleted transactions) is stored in Scriptable's Documents directory.
