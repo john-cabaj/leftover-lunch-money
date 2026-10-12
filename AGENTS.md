@@ -63,5 +63,5 @@ Layout and sizing rules — `FAMILY_LAYOUTS`, padding/gaps, title centering, Del
 
 ## Git Workflow
 
-- Commit changes when finalized; never push to a remote
-- Commit messages use conventional prefixes: `fix:`, `feat:`, `refactor:`, `style:`, `docs:`
+- Commit whenever you finish a piece of work, not only at a release finalization: after each completed, verified task (changes pass `node --check` + the test suite), run the commit for that step rather than batching work up and leaving it uncommitted. The `finalize-release` pass is one such step, not the only one. Concise conventional-prefix commits (`fix:`, `feat:`, `refactor:`, `style:`, `docs:`) are preferred over a single large one.
+- Never push to a remote.

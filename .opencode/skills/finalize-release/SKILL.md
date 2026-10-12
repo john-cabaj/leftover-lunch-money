@@ -11,6 +11,7 @@ Release-milestone workflow for the leftover-lunch-money widget. Run only when th
 
 - The user says "finalize a release", "establish/indicate a baseline", or asks for the simplify + refactor + comment + verify sequence.
 - Do NOT apply to ordinary refactor/simplify edits made mid-change or outside an explicit release request.
+- A finalize request ALWAYS runs the full pass (steps 1-5 below) before the baseline is established. Commit/tag constraints like "tag the current commit" or "don't create a new commit" only narrow WHERE the baseline lands — they never cancel the code pass. If such a constraint would conflict with producing finalized commits, say so and ask rather than silently dropping the pass.
 
 ## Workflow
 
@@ -55,8 +56,9 @@ When verification passes:
   usually `README.md`'s raw install link (`.../refs/tags/vN/index.js`). Update
   each hit, commit with a `docs:` prefix, and if that commit lands after the
   tag was created, move the tag to the new HEAD so the baseline is the final
-  commit. Never push. If the finalize is a code pass WITHOUT a new tag, skip
-  this step entirely — pointing references at a tag that doesn't exist would
-  break the install link.
+  commit. Never push. If the finalize is a code pass WITHOUT a new tag (no
+  version bump), skip this step entirely — pointing references at a tag that
+  doesn't exist would break the install link. "Without a new tag" only narrows
+  this reference-moving step; it never authorizes skipping steps 1-4.
 - Confirm the baseline marker with the user (e.g. the release version/tag name — the repo uses `refs/tags/vN` releases); create the tag locally as the baseline. Never push.
 - Report the final message and tag clearly as the baseline in your response.

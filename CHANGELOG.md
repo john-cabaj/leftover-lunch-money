@@ -4,6 +4,19 @@ All notable changes to this widget. Releases follow the repo's `refs/tags/vN`
 tags; commit messages use conventional prefixes (`fix:`, `feat:`, `refactor:`,
 `style:`, `docs:`).
 
+## v7 — 2026-10-12
+
+- `fix`: a failed `/transactions` pull no longer wipes the unreviewed list or
+  the Delete Pending badge. A successful `/summary` + `/categories` fetch used
+  to cache an empty, "failed" result over the last good list and poison the
+  cache for its whole 10-minute window; the widget now carries the previous
+  record's rows/count forward with their original fetch time, renders a
+  carried-forward list dimmed so it doesn't read as fresh, and only shows
+  "Couldn't load unreviewed" when there is nothing to fall back on. New
+  per-field `unreviewedUpdatedAt` / `deletePendingUpdatedAt` timestamps track
+  each list's true age; records predating the per-field stamp fall back to the
+  record's own `lastUpdated`.
+
 ## v6 — 2026-10-11
 
 - `feat`: the boot path now sweeps Scriptable's widget folder on every run

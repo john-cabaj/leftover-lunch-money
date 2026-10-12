@@ -375,6 +375,7 @@ const TOP_PAD = 14;        // default top inset; small drops to topPad below
 const STACK_SPACING = 2;   // mainStack.spacing
 const ROW_GAP = 1;         // trailing gap after each unreviewed row; keep in sync
                            // with rowFitHeight so the list budget matches rendering
+const STALE_ROW_OPACITY = 0.5; // opacity of a carried-forward (unrefreshed) row
 
 // Rectangular lock-screen accessory layout: tight margins — lock screen widgets
 // use smaller insets than home-screen widgets — plus the gap between the
@@ -805,7 +806,12 @@ async function getAllData() {
   const fresh = readCache();
   if (fresh) return stampCacheTime(fresh);
 
-  const data = await lunchMoneyLeftoverInfo();
+  // The last good record of any age. It's both the whole-record fallback (if
+  // the headline fetch fails) and the source a failed side-list fetch carries
+  // forward, so a transient /transactions error never blanks the unreviewed
+  // list or the Delete Pending badge when a previous answer still exists.
+  const previous = readCache(true);
+  const data = await lunchMoneyLeftoverInfo(previous);
 
   if (data) {
     data.lastUpdated = Date.now();
@@ -814,8 +820,7 @@ async function getAllData() {
   }
 
   // no connection: fall back to stale cache
-  const stale = readCache(true);
-  return stale ? stampCacheTime(stale) : null;
+  return previous ? stampCacheTime(previous) : null;
 }
 
 // Cache records predating the lastUpdated field get one retroactively from the
@@ -866,8 +871,10 @@ async function getApiKey() {
 
 // Fetches the summary + categories for the selected budget period (current or
 // previous, per the widget parameter), computes the leftover, and pulls the
-// latest unreviewed transactions in the same range
-async function lunchMoneyLeftoverInfo() {
+// latest unreviewed transactions in the same range. `previous` is the last good
+// cached record (may be null): a failed side-list fetch carries its rows/count
+// forward rather than blanking them.
+async function lunchMoneyLeftoverInfo(previous) {
   if (!LM_ACCESS_TOKEN) {
     return null;
   }
@@ -891,15 +898,34 @@ async function lunchMoneyLeftoverInfo() {
     // fetch so getAllData falls back to the last good cache instead of caching
     // an empty result with a fresh timestamp.
     if (!leftover) return null;
+    const now = Date.now();
+    // Carry each side list forward on its own: a failed /transactions pull
+    // keeps the previous rows/count (and their original fetch time) instead of
+    // wiping them. sideListUpdatedAt reads each list's per-field stamp, falling
+    // back to the record's own lastUpdated for records that predate it.
+    const unreviewedList = carryForwardSideList(
+      unreviewed.status, unreviewed.rows,
+      previous && previous.unreviewed,
+      sideListUpdatedAt(previous, "unreviewedUpdatedAt"),
+      now
+    );
+    const pending = carryForwardSideList(
+      deletePending.status, deletePending.count,
+      previous && previous.deletePendingCount,
+      sideListUpdatedAt(previous, "deletePendingUpdatedAt"),
+      now
+    );
     return {
       ...leftover,
       periodLabel: periodLabelFor(settings, range),
       periodStart: range.start_date,
       periodEnd: range.end_date,
-      unreviewed: unreviewed.rows,
-      unreviewedStatus: unreviewed.status,
-      deletePendingCount: deletePending.count,
-      deletePendingStatus: deletePending.status
+      unreviewed: unreviewedList.value,
+      unreviewedStatus: unreviewedList.status,
+      unreviewedUpdatedAt: unreviewedList.updatedAt,
+      deletePendingCount: pending.value,
+      deletePendingStatus: pending.status,
+      deletePendingUpdatedAt: pending.updatedAt
     };
   } catch (e) {
     console.error(e);
@@ -960,6 +986,33 @@ async function fetchDeletePendingTransactions(range) {
   } catch {
     return { count: 0, status: "failed" };
   }
+}
+
+// Best-known value for an independently fetched side list — the unreviewed rows
+// or the delete-pending count. A fetch that didn't fail replaces the value and
+// stamps its fetch time; a failed fetch keeps the previous record's last good
+// value and its ORIGINAL timestamp, so a transient /transactions error can
+// neither wipe known-good data nor relabel stale data as fresh. It reports
+// "stale" (a carried-forward list) or "failed" (nothing to fall back on).
+// Pure: the wrappers only report the fetch outcome, so the decision is testable
+// standalone.
+function carryForwardSideList(status, value, prevValue, prevUpdatedAt, now) {
+  if (status !== "failed") {
+    return { value, status, updatedAt: now };
+  }
+  const carried = prevValue != null && prevUpdatedAt != null;
+  return {
+    value: carried ? prevValue : value,
+    status: carried ? "stale" : "failed",
+    updatedAt: carried ? prevUpdatedAt : now
+  };
+}
+
+// When a side list was last successfully fetched. The per-field stamp doesn't
+// exist on cache records written before it, so those fall back to the record's
+// own lastUpdated; null when there is no previous record at all (first run).
+function sideListUpdatedAt(previous, field) {
+  return previous && (previous[field] || previous.lastUpdated);
 }
 
 // GET request against the Lunch Money API: path is relative to BASE_URL (e.g.
@@ -1724,7 +1777,10 @@ function addUnreviewedItems(parent, data, config) {
   if (items.length === 0) {
     addUnreviewedEmpty(parent, data.unreviewedStatus, config);
   } else {
-    items.forEach((t) => addTransactionRow(parent, t, config));
+    // A carried-forward list ("stale") renders dimmed, so a list we couldn't
+    // refresh this run reads as older than the widget's timestamp suggests.
+    const stale = data.unreviewedStatus === "stale";
+    items.forEach((t) => addTransactionRow(parent, t, config, stale));
   }
 }
 
@@ -1830,8 +1886,10 @@ function addUnreviewedEmpty(parent, status, config) {
   empty.minimumScaleFactor = 0.6;
 }
 
-// One unreviewed transaction: payee + amount on a single line (no date)
-function addTransactionRow(parent, t, config) {
+// One unreviewed transaction: payee + amount on a single line (no date). A
+// stale row (a list carried forward after a failed refresh) renders at reduced
+// opacity to signal its age against the widget's fresh timestamp.
+function addTransactionRow(parent, t, config, stale = false) {
   const row = parent.addStack();
   row.layoutHorizontally();
   // The rectangular accessory's Menlo rows sit a hair left of the Avenir
@@ -1855,6 +1913,10 @@ function addTransactionRow(parent, t, config) {
   amount.font = monoFont(fontSize);
   amount.lineLimit = 1;
   amount.textColor = isInflow ? incomeGreen : expenseRed;
+  if (stale) {
+    payee.textOpacity = STALE_ROW_OPACITY;
+    amount.textOpacity = STALE_ROW_OPACITY;
+  }
 
   // Trailing ROW_GAP spacer between rows; matches rowFitHeight's ROW_GAP
   parent.addSpacer(ROW_GAP);

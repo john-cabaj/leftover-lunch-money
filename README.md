@@ -19,6 +19,7 @@ Tapping the widget opens the Lunch Money web app in a Scriptable WebView (inside
 * Home Screen Large/Medium
   * Inflow/Outflow/Leftover section opens the budget
   * Unreviewed Transactions list opens the list of transactions that are set to "unreviewed" (including pending transactions)
+    * If a transactions refresh fails, the widget keeps the last good list and renders it dimmed to show it couldn't be updated this run.
   * "Deleted Transactions Pending!" text opens any pending deleted transactions regardless of the selected period
   * Anywhere else opens the full list of transactions (including pending transactions)
 * Home Screen Small
@@ -32,7 +33,7 @@ Tapping the widget opens the Lunch Money web app in a Scriptable WebView (inside
 
 1. Download [Scriptable](https://scriptable.app)
 2. Add new script
-3. Copy and paste the contents of [index.js](https://raw.githubusercontent.com/john-cabaj/leftover-lunch-money/refs/tags/v6/index.js) and save
+3. Copy and paste the contents of [index.js](https://raw.githubusercontent.com/john-cabaj/leftover-lunch-money/refs/tags/v7/index.js) and save
 4. Tap and hold on the script name, select rename, name the script "Leftover Lunch Money"
 
    NOTE: This is not required for functionality, but describes the script for ease of use

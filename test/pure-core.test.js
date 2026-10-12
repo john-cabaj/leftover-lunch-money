@@ -34,6 +34,7 @@ const REGIONS = [
   slice('function buildQueryString(params) {', '/****************************************************\n             LEFTOVER CALCULATION\n*****************************************************/'),
   slice('function indexCategories(categories) {', 'function formatMoney(value) {'),
   slice('function formatMoney(value) {', '/****************************************************\n             STORAGE\n*****************************************************/'),
+  slice('function carryForwardSideList(status, value, prevValue, prevUpdatedAt, now) {', '// GET request against the Lunch Money API:'),
   slice('function periodPathParts(data) {', '// Field of the /summary totals breakdown that feeds the outflow side'),
   slice('const LINE_HEIGHT_FACTOR = 1.15;', 'const LAYOUT_RENDERERS = {'),
   slice('function listHeightBudget(data, config) {', 'function smallDetailSize(config, fallback) {'),
@@ -115,6 +116,8 @@ function loadPureLogic() {
     computeLeftover: context.computeLeftover,
     sumBreakdownFields: context.sumBreakdownFields,
     shouldCountEntry: context.shouldCountEntry,
+    carryForwardSideList: context.carryForwardSideList,
+    sideListUpdatedAt: context.sideListUpdatedAt,
   };
 }
 
@@ -243,6 +246,71 @@ describe('computeLeftover', () => {
     assert.equal(pure.computeLeftover(FIXTURE_SUMMARY, {}), null);
     assert.equal(pure.computeLeftover(FIXTURE_SUMMARY, undefined), null);
     assert.equal(pure.computeLeftover({ categories: 'nope' }, FIXTURE_CATEGORIES), null);
+  });
+});
+
+describe('carryForwardSideList (side-list fetch fallback)', () => {
+  const prevRows = [{ payee: 'Coffee', amount: 4.5, date: '2026-10-01' }];
+  const freshRows = [{ payee: 'Bagel' }];
+
+  test('a successful fetch replaces the value and stamps the fetch time', () => {
+    const r = pure.carryForwardSideList('ok', freshRows, prevRows, 1000, 2000);
+    assert.equal(r.value, freshRows);
+    assert.equal(r.status, 'ok');
+    assert.equal(r.updatedAt, 2000);
+  });
+  test('a successful empty fetch clears the list as real information', () => {
+    const r = pure.carryForwardSideList('empty', [], prevRows, 1000, 2000);
+    assert.equal(r.value.length, 0);
+    assert.equal(r.status, 'empty');
+    assert.equal(r.updatedAt, 2000);
+  });
+  test('a failed fetch keeps the previous value and its original timestamp', () => {
+    const r = pure.carryForwardSideList('failed', [], prevRows, 1000, 2000);
+    assert.equal(r.value, prevRows);
+    assert.equal(r.status, 'stale');
+    assert.equal(r.updatedAt, 1000);
+  });
+  test('a failed fetch never stamps a fresh time onto stale data', () => {
+    const r = pure.carryForwardSideList('failed', [], prevRows, 1000, 2000);
+    assert.equal(r.updatedAt, 1000);
+  });
+  test('a failed count fetch carries a legitimate zero forward (badge hides)', () => {
+    const r = pure.carryForwardSideList('failed', 0, 0, 1000, 2000);
+    assert.equal(r.value, 0);
+    assert.equal(r.status, 'stale');
+    assert.equal(r.updatedAt, 1000);
+  });
+  test('a failed fetch with nothing to fall back on reports failed', () => {
+    const r1 = pure.carryForwardSideList('failed', [], null, null, 2000);
+    assert.equal(r1.value.length, 0);
+    assert.equal(r1.status, 'failed');
+    const r2 = pure.carryForwardSideList('failed', 0, undefined, null, 2000);
+    assert.equal(r2.value, 0);
+    assert.equal(r2.status, 'failed');
+  });
+  test('a previous value without a timestamp is not treated as carryable', () => {
+    const r = pure.carryForwardSideList('failed', [], prevRows, null, 2000);
+    assert.equal(r.value.length, 0);
+    assert.equal(r.status, 'failed');
+  });
+});
+
+describe('sideListUpdatedAt (per-field recency fallback)', () => {
+  const prev = { lastUpdated: 100, unreviewedUpdatedAt: 50, deletePendingUpdatedAt: 25 };
+
+  test('prefers the per-field stamp when present', () => {
+    assert.equal(pure.sideListUpdatedAt(prev, 'unreviewedUpdatedAt'), 50);
+    assert.equal(pure.sideListUpdatedAt(prev, 'deletePendingUpdatedAt'), 25);
+  });
+  test('falls back to the record lastUpdated when the per-field stamp is missing', () => {
+    assert.equal(pure.sideListUpdatedAt(prev, 'missingUpdatedAt'), 100);
+  });
+  test('null without a previous record', () => {
+    assert.equal(pure.sideListUpdatedAt(null, 'unreviewedUpdatedAt'), null);
+  });
+  test('a missing stamp on a bare record resolves to undefined (caller guards with != null)', () => {
+    assert.equal(pure.sideListUpdatedAt({}, 'unreviewedUpdatedAt'), undefined);
   });
 });
 
