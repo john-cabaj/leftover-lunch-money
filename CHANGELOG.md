@@ -4,6 +4,18 @@ All notable changes to this widget. Releases follow the repo's `refs/tags/vN`
 tags; commit messages use conventional prefixes (`fix:`, `feat:`, `refactor:`,
 `style:`, `docs:`).
 
+## v8 — 2026-10-14
+
+- `feat`: the Delete Pending badge is now period-independent. Manual deletes
+  are account-wide, so the widget counts `delete_pending` transactions across
+  the whole history (capped at `DELETE_PENDING_LIMIT`, 100) instead of only the
+  displayed period; the badge shows whenever any exist, matching its tap
+  target, which already opened the unfiltered `status=delete pending&time=all`
+  list.
+- `refactor`: the title + period header height is now measured through one
+  `headerBlockHeight(config, measure)` (the full Avenir box by default, the lean
+  box in the review list budget) instead of duplicating the formula.
+
 ## v7 — 2026-10-12
 
 - `fix`: a failed `/transactions` pull no longer wipes the unreviewed list or

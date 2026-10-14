@@ -33,10 +33,10 @@ Tapping the widget opens the Lunch Money web app in a Scriptable WebView (inside
 
 1. Download [Scriptable](https://scriptable.app)
 2. Add new script
-3. Copy and paste the contents of [index.js](https://raw.githubusercontent.com/john-cabaj/leftover-lunch-money/refs/tags/v7/index.js) and save
+3. Copy and paste the contents of [index.js](https://raw.githubusercontent.com/john-cabaj/leftover-lunch-money/refs/tags/v8/index.js) and save
 4. Tap and hold on the script name, select rename, name the script "Leftover Lunch Money"
 
-   NOTE: This is not required for functionality, but describes the script for ease of use
+   NOTE: This is not required for functionality, but describes the script for ease of use.
 6. Run the script, this will pop up an alert box
 7. Paste your [API key from Lunch Money](https://my.lunchmoney.app/developers)
 8. The API key will be stored in Scriptable's on-device Keychain, and shouldn't need to be entered again
@@ -49,6 +49,9 @@ Tapping the widget opens the Lunch Money web app in a Scriptable WebView (inside
   
 12. Once options are set, tap on the home screen (not the widget options) to save the changes
 13. Enjoy!
+
+   NOTE: Be sure to check back for updated versions of [index.js](https://raw.githubusercontent.com/john-cabaj/leftover-lunch-money/refs/tags/v8/index.js)! Updates need to be manually copied be re-running
+   step #3.
 
 ## Other images
 ### Home Screen Large

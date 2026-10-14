@@ -28,9 +28,9 @@
  *       above the "Unreviewed Transactions" caption, aligned like it          *
  *       (centered on large, left on medium) at the cost of the list's last    *
  *       fitted row while it's up; the small stacked widget (no list) tops its *
- *       metrics with the same line. Tapping opens the UNFILTERED (no date     *
- *       filter) delete_pending transactions page — all of them, regardless    *
- *       of period.                                                            *
+ *       metrics with the same line. Manual deletes are period-independent, so *
+ *       the label counts ANY delete_pending transaction in the account (not   *
+ *       just the displayed period); tapping opens the same UNFILTERED page.   *
  *                                                                             *
  ******************************************************************************/
 
@@ -154,6 +154,11 @@ const BASE_URL = 'https://api.lunchmoney.dev/v2';
 // and the callers fall back to the stale cache (getAllData) instead of the
 // widget being killed with "Timeout while running script".
 const REQUEST_TIMEOUT = 10; // seconds
+
+// The Delete Pending badge only needs to know whether ANY delete_pending
+// transaction exists, and manual deletes are period-independent, so that pull
+// sends no date range and is capped here instead of paging the whole account.
+const DELETE_PENDING_LIMIT = 100;
 
 // Tap targets (web versions of the Lunch Money app deep links): the widget-wide
 // default opens the transactions list; the metrics and unreviewed regions
@@ -435,8 +440,8 @@ function pad(config, key, fallback) {
   return config && config[key] != null ? config[key] : fallback;
 }
 
-function headerBlockHeight(config) {
-  return lineHeight(TITLE_SIZE) + headerBlockGap(config) + lineHeight(PERIOD_SIZE);
+function headerBlockHeight(config, measure = lineHeight) {
+  return measure(TITLE_SIZE) + headerBlockGap(config) + measure(PERIOD_SIZE);
 }
 
 // Total vertical space a layout's header occupies: the fixed header block height
@@ -445,8 +450,11 @@ function headerBlockHeight(config) {
 // still account for it so list rows never cross the widget's bottom edge. The
 // Delete Pending badge lives in the unreviewed list column, not the header, so
 // it is reserved by listHeightBudget instead (deletePendingBadgeHeight).
-function headerHeight(config) {
-  return headerBlockHeight(config) + (config.headerPad || 0);
+// measure is the line box the height is budgeted at: the full Avenir box by
+// default, the lean box where a budget reserves WidgetKit's tighter rendering
+// (the review list budget).
+function headerHeight(config, measure = lineHeight) {
+  return headerBlockHeight(config, measure) + (config.headerPad || 0);
 }
 
 // Vertical space the Delete Pending badge occupies at the top of the
@@ -871,7 +879,8 @@ async function getApiKey() {
 
 // Fetches the summary + categories for the selected budget period (current or
 // previous, per the widget parameter), computes the leftover, and pulls the
-// latest unreviewed transactions in the same range. `previous` is the last good
+// latest unreviewed transactions in the same range plus the account-wide
+// delete-pending count (period-independent). `previous` is the last good
 // cached record (may be null): a failed side-list fetch carries its rows/count
 // forward rather than blanking them.
 async function lunchMoneyLeftoverInfo(previous) {
@@ -891,7 +900,7 @@ async function lunchMoneyLeftoverInfo(previous) {
       sendLunchMoneyRequest('/summary', params),
       sendLunchMoneyRequest('/categories'),
       fetchUnreviewedTransactions(range),
-      fetchDeletePendingTransactions(range)
+      fetchDeletePendingTransactions()
     ]);
     const leftover = computeLeftover(summary, categories);
     // A 200 with an unexpected shape yields no leftover; treat it as a failed
@@ -933,13 +942,13 @@ async function lunchMoneyLeftoverInfo(previous) {
   }
 }
 
-// The raw /transactions rows for one status within the range. Both status pulls
-// below differ only in this call (delete_pending sends no include_pending), so
-// the request shape lives here and the wrappers keep their own mapping + status
-// semantics.
-async function fetchTransactions(range, status, includePending = false) {
+// The raw /transactions rows for one status, shaped by the caller's params
+// (date range and/or a limit). Both status pulls below differ only in this call
+// (delete_pending sends no include_pending), so the request shape lives here
+// and the wrappers keep their own mapping + status semantics.
+async function fetchTransactions(params, status, includePending = false) {
   const data = await sendLunchMoneyRequest('/transactions', {
-    ...range,
+    ...params,
     status,
     ...(includePending ? { include_pending: true } : {})
   });
@@ -977,11 +986,14 @@ async function fetchUnreviewedTransactions(range) {
 }
 
 // Transactions the synced account deleted after they were updated by the user;
-// these need manual intervention. Returns a count so the layout can show the
-// Delete Pending badge, and a status so a failed fetch can degrade to no badge.
-async function fetchDeletePendingTransactions(range) {
+// these need manual intervention. Manual deletes are period-independent, so the
+// pull sends NO date filter — it counts delete_pending transactions across the
+// account's whole history (capped at DELETE_PENDING_LIMIT) rather than only the
+// displayed period. Returns a count so the layout can show the Delete Pending
+// badge, and a status so a failed fetch can degrade to no badge.
+async function fetchDeletePendingTransactions() {
   try {
-    const raw = await fetchTransactions(range, "delete_pending");
+    const raw = await fetchTransactions({ limit: DELETE_PENDING_LIMIT }, "delete_pending");
     return { count: raw.length, status: raw.length > 0 ? "ok" : "empty" };
   } catch {
     return { count: 0, status: "failed" };
@@ -1796,8 +1808,7 @@ function listHeightBudget(data, config) {
     // Font.lineHeight (the same visible slack the small widget's badge line
     // lives in) — so the rows pick up the space that actually shows instead of
     // leaving it empty.
-    const header = leanLineHeight(TITLE_SIZE) + headerBlockGap(config)
-      + leanLineHeight(PERIOD_SIZE) + (config.headerPad || 0);
+    const header = headerHeight(config, leanLineHeight);
     return height - PADDING_Y - header - REVIEW_GAP
       - leanLineHeight(config.caption) - deletePendingBadgeHeight(data, config);
   }
