@@ -163,8 +163,10 @@ const DELETE_PENDING_LIMIT = 100;
 // Tap targets (web versions of the Lunch Money app deep links): the widget-wide
 // default opens the transactions list; the metrics and unreviewed regions
 // override it with their own targets. Budget deep-links by the displayed
-// period's start date, and the transactions views pin the same period with a
-// time=custom range and include pending transactions.
+// period's start date, and the transactions views pin the same period — the
+// year/month path alone when the period IS its whole calendar month (which
+// also keeps the webapp's quick search bar visible), a time=custom range
+// otherwise — and include pending transactions.
 const WEB_APP_URL = "https://my.lunchmoney.app";
 
 // Period path segments (year, two-digit month, and zero-padded start day)
@@ -186,6 +188,22 @@ function periodParams(data) {
     : {};
 }
 
+// True when the period spans exactly its start's calendar month (1st → last
+// day), so the /transactions/YYYY/MM path pins it without a query range.
+// Webapp-verified: start_date/end_date are ignored unless time=custom
+// accompanies them, and any time=custom range (like any status/match filter)
+// swaps the quick search bar out of the transactions toolbar — so full-month
+// periods drop the range and keep quick search on tap, while custom periods
+// keep their exact range and open without the bar (no URL shape does both).
+function periodIsFullMonth(data) {
+  if (!data || !data.periodStart || !data.periodEnd) return false;
+  const start = parseIsoDate(data.periodStart);
+  const end = parseIsoDate(data.periodEnd);
+  if (isNaN(start) || isNaN(end)) return false;
+  return start.getDate() === 1 &&
+    end.getTime() === lastDayOfMonth(start.getFullYear(), start.getMonth()).getTime();
+}
+
 // Tapping inflows/outflows/leftover opens the Budget page for the period.
 // Budget deep-links by the period start date: a monthly period anchors on the
 // year/month path, a custom period (not starting on the 1st) adds its start day.
@@ -197,11 +215,14 @@ function budgetTapUrl(data) {
     : `${WEB_APP_URL}/budget/${p.year}/${p.month}/${p.day}`);
 }
 
-// Shared builder: /transactions/YYYY/MM pinned to the displayed period
+// Shared builder: /transactions/YYYY/MM pinned to the displayed period — a
+// full calendar month rides the path alone, only a custom period pays for the
+// time=custom range (and, with it, the quick search bar)
 function transactionPageUrl(data, filters) {
   const p = periodPathParts(data);
   const path = p.year ? `/transactions/${p.year}/${p.month}` : "/transactions";
-  return appDeepLink(WEB_APP_URL + path + buildQueryString({ ...periodParams(data), ...filters }));
+  const period = periodIsFullMonth(data) ? {} : periodParams(data);
+  return appDeepLink(WEB_APP_URL + path + buildQueryString({ ...period, ...filters }));
 }
 
 // Reroutes a Lunch Money tap back into Scriptable: the target web-app URL is
@@ -219,8 +240,8 @@ function unreviewedTapUrl(data) {
 
 // The Delete Pending badge opens every transaction still waiting on a manual
 // delete — all of them, with NO date filter. Missed manual deletes are
-// period-independent, so the target skips the period path and time=custom
-// range the period-spanning taps pin; time=all is how the web app expresses
+// period-independent, so the target skips the period path and the time=custom
+// range only a custom period pins; time=all is how the web app expresses
 // "all time" (buildQueryDateRange returns no date range for it). The status
 // value is the web app's own filter label, "delete pending" (a space, not the
 // API's delete_pending — the transactions page matches the label literally,
@@ -1272,6 +1293,13 @@ function parseIsoDate(value) {
   return new Date(+parts[0], +parts[1] - 1, +parts[2]);
 }
 
+// Last calendar day of the given month as a local Date; month is 0-based like
+// Date's own (day 0 of the following month is the prior month's last day), so
+// under/overflowing month arithmetic (e.g. monthOffset -1) still lands right.
+function lastDayOfMonth(year, month) {
+  return new Date(year, month + 1, 0);
+}
+
 // Steps date by count budget periods (positive moves forward, negative moves
 // back) using the account's period quantity + granularity. Backward walking is
 // how callers find the period before a given target date.
@@ -1307,7 +1335,7 @@ function addBudgetPeriod(date, settings, count) {
 function addMonthsClamped(date, n) {
   const day = date.getDate();
   const target = new Date(date.getFullYear(), date.getMonth() + n, 1);
-  const lastDay = new Date(target.getFullYear(), target.getMonth() + 1, 0).getDate();
+  const lastDay = lastDayOfMonth(target.getFullYear(), target.getMonth()).getDate();
   date.setFullYear(target.getFullYear(), target.getMonth(), Math.min(day, lastDay));
 }
 
@@ -1338,7 +1366,7 @@ function getBudgetPeriodForDate(settings, targetDate) {
   periodEnd.setDate(periodEnd.getDate() - 1);
 
   if (settings.budget_use_last_day_of_month && settings.budget_period_granularity === "month") {
-    periodEnd = new Date(periodEnd.getFullYear(), periodEnd.getMonth() + 1, 0);
+    periodEnd = lastDayOfMonth(periodEnd.getFullYear(), periodEnd.getMonth());
   }
 
   return {
@@ -1375,7 +1403,7 @@ function getCalendarMonthRange(monthOffset) {
   const now = new Date();
   return {
     start_date: formatDateString(new Date(now.getFullYear(), now.getMonth() + monthOffset, 1)),
-    end_date: formatDateString(new Date(now.getFullYear(), now.getMonth() + 1 + monthOffset, 0))
+    end_date: formatDateString(lastDayOfMonth(now.getFullYear(), now.getMonth() + monthOffset))
   };
 }
 
@@ -1660,8 +1688,12 @@ function addUnreviewedSection(parent, data, config, opts = {}) {
   const list = parent.addStack();
   list.layoutVertically();
   if (opts.tappable !== false) {
-    caption.row.url = unreviewedTapUrl(data);
-    list.url = unreviewedTapUrl(data);
+    // One URL shared by both tap targets (the caption row and the list stack):
+    // the unreviewed target derives from the same period data, so build it once
+    // rather than recomputing it per target.
+    const url = unreviewedTapUrl(data);
+    caption.row.url = url;
+    list.url = url;
   }
   addUnreviewedItems(list, data, config);
 }

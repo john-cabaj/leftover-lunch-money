@@ -95,6 +95,7 @@ function loadPureLogic() {
     buildQueryString: context.buildQueryString,
     periodPathParts: context.periodPathParts,
     periodParams: context.periodParams,
+    periodIsFullMonth: context.periodIsFullMonth,
     budgetTapUrl: context.budgetTapUrl,
     transactionPageUrl: context.transactionPageUrl,
     appDeepLink: context.appDeepLink,
@@ -451,6 +452,20 @@ describe('periodLabelFor', () => {
   });
 });
 
+describe('periodIsFullMonth (path-pinned periods)', () => {
+  test('a 1st → month-end period is covered by the /YYYY/MM path', () => {
+    assert.equal(pure.periodIsFullMonth({ periodStart: '2026-06-01', periodEnd: '2026-06-30' }), true);
+    assert.equal(pure.periodIsFullMonth({ periodStart: '2026-02-01', periodEnd: '2026-02-28' }), true);
+    assert.equal(pure.periodIsFullMonth({ periodStart: '2024-02-01', periodEnd: '2024-02-29' }), true);
+  });
+  test('custom, multi-month, short, and missing periods are not', () => {
+    assert.equal(pure.periodIsFullMonth({ periodStart: '2026-03-15', periodEnd: '2026-04-14' }), false);
+    assert.equal(pure.periodIsFullMonth({ periodStart: '2026-10-01', periodEnd: '2026-11-30' }), false);
+    assert.equal(pure.periodIsFullMonth({ periodStart: '2026-06-01', periodEnd: '2026-06-29' }), false);
+    assert.equal(pure.periodIsFullMonth({}), false);
+  });
+});
+
 describe('tap URL builders (golden)', () => {
   const data = { periodStart: '2026-06-01', periodEnd: '2026-06-30' };
 
@@ -472,10 +487,10 @@ describe('tap URL builders (golden)', () => {
       'scriptable:///run?scriptName=index&url=https%3A%2F%2Fmy.lunchmoney.app%2Fbudget'
     );
   });
-  test('unreviewedTapUrl: unreviewed + pending pinned to the period', () => {
+  test('unreviewedTapUrl: unreviewed + pending, full month pinned by the path', () => {
     assert.equal(
       pure.unreviewedTapUrl(data),
-      'scriptable:///run?scriptName=index&url=https%3A%2F%2Fmy.lunchmoney.app%2Ftransactions%2F2026%2F06%3Fend_date%3D2026-06-30%26start_date%3D2026-06-01%26time%3Dcustom%26status%3Dunreviewed%26include_pending%3Dtrue%26match%3Dall'
+      'scriptable:///run?scriptName=index&url=https%3A%2F%2Fmy.lunchmoney.app%2Ftransactions%2F2026%2F06%3Fstatus%3Dunreviewed%26include_pending%3Dtrue%26match%3Dall'
     );
   });
   test('deletePendingTapUrl: every delete_pending transaction, NO date filter, webapp label with a space', () => {
@@ -484,10 +499,22 @@ describe('tap URL builders (golden)', () => {
       'scriptable:///run?scriptName=index&url=https%3A%2F%2Fmy.lunchmoney.app%2Ftransactions%3Fmatch%3Dall%26status%3Ddelete%20pending%26time%3Dall'
     );
   });
-  test('transactionsTapUrl: regular transactions view, pending included', () => {
+  test('transactionsTapUrl: full-month period carries no range, quick search bar stays', () => {
     assert.equal(
       pure.transactionsTapUrl(data),
-      'scriptable:///run?scriptName=index&url=https%3A%2F%2Fmy.lunchmoney.app%2Ftransactions%2F2026%2F06%3Fend_date%3D2026-06-30%26start_date%3D2026-06-01%26time%3Dcustom%26include_pending%3Dtrue'
+      'scriptable:///run?scriptName=index&url=https%3A%2F%2Fmy.lunchmoney.app%2Ftransactions%2F2026%2F06%3Finclude_pending%3Dtrue'
+    );
+  });
+  test('transactionPageUrl: a custom period keeps its time=custom range', () => {
+    assert.equal(
+      pure.transactionPageUrl({ periodStart: '2026-03-15', periodEnd: '2026-04-14' }, { include_pending: true }),
+      'scriptable:///run?scriptName=index&url=https%3A%2F%2Fmy.lunchmoney.app%2Ftransactions%2F2026%2F03%3Fend_date%3D2026-04-14%26start_date%3D2026-03-15%26time%3Dcustom%26include_pending%3Dtrue'
+    );
+  });
+  test('transactionPageUrl: a period spanning two whole months keeps the range too', () => {
+    assert.equal(
+      pure.transactionPageUrl({ periodStart: '2026-10-01', periodEnd: '2026-11-30' }, {}),
+      'scriptable:///run?scriptName=index&url=https%3A%2F%2Fmy.lunchmoney.app%2Ftransactions%2F2026%2F10%3Fend_date%3D2026-11-30%26start_date%3D2026-10-01%26time%3Dcustom'
     );
   });
   test('transactionPageUrl: no period loaded drops the date range but keeps filters', () => {

@@ -65,3 +65,11 @@ Layout and sizing rules — `FAMILY_LAYOUTS`, padding/gaps, title centering, Del
 
 - Commit whenever you finish a piece of work, not only at a release finalization: after each completed, verified task (changes pass `node --check` + the test suite), run the commit for that step rather than batching work up and leaving it uncommitted. The `finalize-release` pass is one such step, not the only one. Concise conventional-prefix commits (`fix:`, `feat:`, `refactor:`, `style:`, `docs:`) are preferred over a single large one.
 - Never push to a remote.
+
+## Finalizing a Release
+
+When the user asks to finalize, cut, or release a version (`vN`) — or names the `finalize-release` skill — you MUST run the full workflow before creating or moving any `vN` tag. This is not optional and must never be reduced to editing `CHANGELOG.md` and tagging.
+
+- Load the skill first. Repo skills live in `.opencode/skills/`; if the `skill` tool does not list `finalize-release` (opencode only auto-discovers skills at the project root, not in this nested repo), read `.opencode/skills/finalize-release/SKILL.md` directly with the Read tool and follow it verbatim.
+- Complete all five steps (simplify, cross-check, comment cleanup, verify, changelog) plus "Establish the baseline". Load the relevant domain skill (`budget-periods`, `leftover-math`, `tap-navigation`, `widget-layout`) before touching code in its area.
+- Only after the full pass: commit, then create/move the `vN` tag, and confirm `CHANGELOG.md` has the matching `## vN` entry (the pre-commit hook enforces the entry).

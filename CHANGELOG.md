@@ -4,6 +4,23 @@ All notable changes to this widget. Releases follow the repo's `refs/tags/vN`
 tags; commit messages use conventional prefixes (`fix:`, `feat:`, `refactor:`,
 `style:`, `docs:`).
 
+## v9 — 2026-10-17
+
+- `feat`: full-month transactions taps keep the web app's quick search bar. The
+  web app hides that bar whenever the URL carries a `time=custom` range (any
+  `status`/`match` filter hides it too), and it ignores `start_date`/`end_date`
+  without `time=custom` — so pinning every period with a range cost the plain
+  widget tap its search box. `periodIsFullMonth` now detects a period that IS
+  its whole calendar month (1st → last day) and drops the range, letting the
+  `/transactions/YYYY/MM` path pin the period exactly; custom periods keep
+  their exact range, and the unreviewed / Delete Pending targets keep their
+  filters (no URL shape shows the bar AND applies a custom range or filter).
+- `refactor`: the last-day-of-month idiom (`new Date(y, m + 1, 0)`) is now one
+  `lastDayOfMonth(year, month)` helper, shared by `addMonthsClamped`,
+  `getBudgetPeriodForDate`, `getCalendarMonthRange`, and `periodIsFullMonth`;
+  the unreviewed tap URL is likewise built once and shared by the caption row
+  and the list stack instead of being recomputed per target.
+
 ## v8 — 2026-10-14
 
 - `feat`: the Delete Pending badge is now period-independent. Manual deletes
