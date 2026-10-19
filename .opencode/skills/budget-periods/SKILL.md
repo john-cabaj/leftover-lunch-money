@@ -18,6 +18,8 @@ The account's budget period comes from Lunch Money's `/budgets/settings`:
 
 When the account has no custom period (empty `/budgets/settings` or absent anchor), the calendar month is used instead via `getCalendarMonthRange`.
 
+At runtime, the widget computes a seed range from these rules, then fetches `/summary` with `include_occurrences=true` and `include_past_budget_dates=true` and calls `reconcilePeriodRange(summary, seed)` to pick the API's actual boundaries (correcting for granularity/anchor edge cases, including `"twice a month"`). If the returned boundaries differ from the seed, it refetches `/summary` pinned to those boundaries and the unreviewed list for that range.
+
 ## Widget parameter selection
 
 The Scriptable widget parameter (case-insensitive, whitespace-trimmed) selects the period:
@@ -53,7 +55,7 @@ The cache is split per period (`lunchMoneyCache` / `lunchMoneyCache_previous`), 
 
 ## Unreviewed transactions
 
-Unreviewed transactions are fetched for the same range as the displayed period, filtering client-side so both v1 ("uncleared") and v2 ("unreviewed") statuses are recognized. The delete-pending count is the exception: manual deletes are period-independent, so `fetchDeletePendingTransactions` sends NO date filter and counts `delete_pending` transactions across the account's whole history (capped at `DELETE_PENDING_LIMIT`, 100) — the badge shows whenever any exist, not only within the displayed period.
+Unreviewed transactions are fetched for the same range as the displayed period, filtering client-side so both v1 ("uncleared") and v2 ("unreviewed") statuses are recognized. The delete-pending count is the exception: manual deletes are period-independent, so `fetchDeletePendingTransactions` sends NO date filter and no other params (just `status=delete_pending`) and counts `delete_pending` transactions across the account's whole history — the badge shows whenever any exist, not only within the displayed period.
 
 ## Node verification
 

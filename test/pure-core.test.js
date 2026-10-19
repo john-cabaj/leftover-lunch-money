@@ -111,6 +111,9 @@ function loadPureLogic() {
     getCurrentBudgetPeriod: context.getCurrentBudgetPeriod,
     getPeriodRange: context.getPeriodRange,
     periodLabelFor: context.periodLabelFor,
+    summaryOccurrences: context.summaryOccurrences,
+    mostOverlappingOccurrence: context.mostOverlappingOccurrence,
+    reconcilePeriodRange: context.reconcilePeriodRange,
     indexCategories: context.indexCategories,
     categoryRows: context.categoryRows,
     incomeInflow: context.incomeInflow,
@@ -449,6 +452,41 @@ describe('periodLabelFor', () => {
       pure.periodLabelFor({ budget_period_granularity: 'week' }, { start_date: '2026-06-01', end_date: '2026-06-07' }),
       'CURRENT PAY PERIOD'
     );
+  });
+});
+
+describe('reconcilePeriodRange (API period boundaries)', () => {
+  const seed = { start_date: '2026-06-01', end_date: '2026-06-30' };
+
+  test('an occurrence equal to the seed is kept unchanged', () => {
+    const summary = { categories: [{ occurrences: [{ in_range: true, start_date: '2026-06-01', end_date: '2026-06-30' }] }] };
+    assert.deepEqual(period(pure.reconcilePeriodRange(summary, seed)), seed);
+  });
+  test('a misaligned seed is corrected to the overlapping occurrence', () => {
+    const summary = { categories: [{ occurrences: [{ in_range: true, start_date: '2026-06-15', end_date: '2026-07-14' }] }] };
+    assert.deepEqual(period(pure.reconcilePeriodRange(summary, seed)), {
+      start_date: '2026-06-15', end_date: '2026-07-14'
+    });
+  });
+  test('prior-period occurrences that do not overlap the seed are ignored', () => {
+    const summary = { categories: [{ occurrences: [
+      { in_range: false, start_date: '2026-03-01', end_date: '2026-03-31' },
+      { in_range: true, start_date: '2026-06-01', end_date: '2026-06-30' }
+    ] }] };
+    assert.deepEqual(period(pure.reconcilePeriodRange(summary, seed)), seed);
+  });
+  test('falls back to the seed when no occurrences are returned', () => {
+    assert.deepEqual(period(pure.reconcilePeriodRange({ categories: [] }, seed)), seed);
+    assert.deepEqual(period(pure.reconcilePeriodRange({}, seed)), seed);
+  });
+  test('skips categories without occurrences and reads a later one', () => {
+    const summary = { categories: [
+      { category_id: 1 },
+      { category_id: 2, occurrences: [{ in_range: true, start_date: '2026-06-15', end_date: '2026-07-14' }] }
+    ] };
+    assert.deepEqual(period(pure.reconcilePeriodRange(summary, seed)), {
+      start_date: '2026-06-15', end_date: '2026-07-14'
+    });
   });
 });
 

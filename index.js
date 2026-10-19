@@ -155,11 +155,6 @@ const BASE_URL = 'https://api.lunchmoney.dev/v2';
 // widget being killed with "Timeout while running script".
 const REQUEST_TIMEOUT = 10; // seconds
 
-// The Delete Pending badge only needs to know whether ANY delete_pending
-// transaction exists, and manual deletes are period-independent, so that pull
-// sends no date range and is capped here instead of paging the whole account.
-const DELETE_PENDING_LIMIT = 100;
-
 // Tap targets (web versions of the Lunch Money app deep links): the widget-wide
 // default opens the transactions list; the metrics and unreviewed regions
 // override it with their own targets. Budget deep-links by the displayed
@@ -898,6 +893,22 @@ async function getApiKey() {
   return apiKey;
 }
 
+// Query params for a /summary call. include_exclude_from_budgets keeps
+// "exclude from budget" categories in the summary: only income and
+// "exclude from totals" categories drop out of the leftover, so budget-excluded
+// spending must still count as outflow. The discovery call also asks for the
+// API's occurrence boundaries, including the prior periods to widen the net if
+// the local seed misses the target period.
+function summaryParams(range, withOccurrences) {
+  return {
+    ...range,
+    include_totals: true,
+    include_rollover_pool: true,
+    include_exclude_from_budgets: true,
+    ...(withOccurrences ? { include_occurrences: true, include_past_budget_dates: true } : {})
+  };
+}
+
 // Fetches the summary + categories for the selected budget period (current or
 // previous, per the widget parameter), computes the leftover, and pulls the
 // latest unreviewed transactions in the same range plus the account-wide
@@ -911,18 +922,27 @@ async function lunchMoneyLeftoverInfo(previous) {
   try {
     const settings = await sendLunchMoneyRequest('/budgets/settings');
     // Prefer the configured budget period; fall back to the calendar month.
-    // "previous" shows the prior period instead of the current one
-    const range = getPeriodRange(settings, SHOW_PREVIOUS_PERIOD);
-    // include_exclude_from_budgets keeps "exclude from budget" categories in the
-    // summary: only income and "exclude from totals" categories drop out of
-    // the leftover, so budget-excluded spending must still count as outflow.
-    const params = { ...range, include_totals: true, include_rollover_pool: true, include_exclude_from_budgets: true };
-    const [summary, categories, unreviewed, deletePending] = await Promise.all([
-      sendLunchMoneyRequest('/summary', params),
+    // "previous" shows the prior period instead of the current one. This seed
+    // is then confirmed/corrected against the boundaries the API reports (see
+    // reconcilePeriodRange below).
+    const seed = getPeriodRange(settings, SHOW_PREVIOUS_PERIOD);
+    let [summary, categories, unreviewed, deletePending] = await Promise.all([
+      sendLunchMoneyRequest('/summary', summaryParams(seed, true)),
       sendLunchMoneyRequest('/categories'),
-      fetchUnreviewedTransactions(range),
+      fetchUnreviewedTransactions(seed),
       fetchDeletePendingTransactions()
     ]);
+    // Adopt the API's period boundaries. A non-aligned summary omits the
+    // budgeted/available fields the leftover math needs, so when the seed
+    // missed the real period, refetch pinned to it and repull the unreviewed
+    // rows for the corrected range too.
+    const range = reconcilePeriodRange(summary, seed);
+    if (range.start_date !== seed.start_date || range.end_date !== seed.end_date) {
+      [summary, unreviewed] = await Promise.all([
+        sendLunchMoneyRequest('/summary', summaryParams(range, false)),
+        fetchUnreviewedTransactions(range)
+      ]);
+    }
     const leftover = computeLeftover(summary, categories);
     // A 200 with an unexpected shape yields no leftover; treat it as a failed
     // fetch so getAllData falls back to the last good cache instead of caching
@@ -964,9 +984,9 @@ async function lunchMoneyLeftoverInfo(previous) {
 }
 
 // The raw /transactions rows for one status, shaped by the caller's params
-// (date range and/or a limit). Both status pulls below differ only in this call
-// (delete_pending sends no include_pending), so the request shape lives here
-// and the wrappers keep their own mapping + status semantics.
+// (a date range, or nothing). Both status pulls below differ only in this call
+// (delete_pending sends no date range and no include_pending), so the request
+// shape lives here and the wrappers keep their own mapping + status semantics.
 async function fetchTransactions(params, status, includePending = false) {
   const data = await sendLunchMoneyRequest('/transactions', {
     ...params,
@@ -1009,12 +1029,13 @@ async function fetchUnreviewedTransactions(range) {
 // Transactions the synced account deleted after they were updated by the user;
 // these need manual intervention. Manual deletes are period-independent, so the
 // pull sends NO date filter — it counts delete_pending transactions across the
-// account's whole history (capped at DELETE_PENDING_LIMIT) rather than only the
-// displayed period. Returns a count so the layout can show the Delete Pending
-// badge, and a status so a failed fetch can degrade to no badge.
+// account's whole history rather than only the displayed period (the API's
+// default page size caps it; the badge only tests the count for nonzero).
+// Returns a count so the layout can show the Delete Pending badge, and a status
+// so a failed fetch can degrade to no badge.
 async function fetchDeletePendingTransactions() {
   try {
-    const raw = await fetchTransactions({ limit: DELETE_PENDING_LIMIT }, "delete_pending");
+    const raw = await fetchTransactions({}, "delete_pending");
     return { count: raw.length, status: raw.length > 0 ? "ok" : "empty" };
   } catch {
     return { count: 0, status: "failed" };
@@ -1129,19 +1150,17 @@ function budgetGrouping(entries, info) {
 }
 
 // Shapes one summary entry into a clean budget row { name, initialBudget,
-// activity, rollover, available, contribution }. The category name comes from
-// the indexed names map; the contribution is derived from the same figure the
-// row already computes.
+// activity, available, contribution }. The category name comes from the
+// indexed names map. `available` comes straight from the API — present
+// (possibly null for unbudgeted categories) in aligned responses, absent in
+// non-aligned ones — and is normalized to null so the contribution ternary
+// below never sees undefined. A budgeted category contributes its budget
+// (plus any overspend when available is negative); an unbudgeted one
+// contributes its activity.
 function shapeBudgetRow(entry, names) {
   const initialBudget = entry.totals.budgeted;
   const activity = (entry.totals.other_activity || 0) + (entry.totals.recurring_activity || 0);
-  const rollover = entry.rollover_pool ? (entry.rollover_pool.budgeted_to_base || 0) : 0;
-  const available = entry.totals.available != null
-    ? entry.totals.available
-    : (initialBudget != null ? initialBudget + rollover - activity : null);
-  // Budgeted categories spend at most their budget; over-budget categories
-  // spend the full original budget plus the overspend. Unbudgeted categories
-  // spend their activity.
+  const available = entry.totals.available != null ? entry.totals.available : null;
   const contribution = initialBudget == null
     ? activity
     : (available >= 0 ? initialBudget : initialBudget - available);
@@ -1149,7 +1168,6 @@ function shapeBudgetRow(entry, names) {
     name: names[entry.category_id] || entry.category_id,
     initialBudget,
     activity,
-    rollover,
     available,
     contribution
   };
@@ -1405,6 +1423,50 @@ function getCalendarMonthRange(monthOffset) {
     start_date: formatDateString(new Date(now.getFullYear(), now.getMonth() + monthOffset, 1)),
     end_date: formatDateString(lastDayOfMonth(now.getFullYear(), now.getMonth() + monthOffset))
   };
+}
+
+// The account's real budget-period boundaries, straight from the API. A
+// /summary request sent with include_occurrences returns each category an
+// `occurrences` array of the periods it covers; every category shares the same
+// boundaries, so the first non-empty list describes them all. Empty when the
+// response predates or omits the field.
+function summaryOccurrences(summary) {
+  if (!summary || !Array.isArray(summary.categories)) return [];
+  for (const entry of summary.categories) {
+    if (entry && Array.isArray(entry.occurrences) && entry.occurrences.length > 0) {
+      return entry.occurrences;
+    }
+  }
+  return [];
+}
+
+// The occurrence overlapping `seed` the most, in milliseconds. Non-overlapping
+// occurrences score 0, so a seed that misses every returned period yields null.
+function mostOverlappingOccurrence(occurrences, seed) {
+  const seedStart = parseIsoDate(seed.start_date).getTime();
+  const seedEnd = parseIsoDate(seed.end_date).getTime();
+  let best = null;
+  let bestOverlap = 0;
+  for (const occ of occurrences) {
+    const overlap = Math.min(seedEnd, parseIsoDate(occ.end_date).getTime())
+      - Math.max(seedStart, parseIsoDate(occ.start_date).getTime());
+    if (overlap > bestOverlap) {
+      bestOverlap = overlap;
+      best = occ;
+    }
+  }
+  return best;
+}
+
+// Reconcile the locally computed period range with the boundaries the API
+// actually used. When the seed lands on a real period the returned range equals
+// it (the aligned common case); when the seed misses — a wrong anchor, or a
+// granularity the local walk doesn't model (e.g. "twice a month") — the range
+// is corrected to the occurrence overlapping it. Falls back to the seed when
+// the response carries no occurrences.
+function reconcilePeriodRange(summary, seed) {
+  const best = mostOverlappingOccurrence(summaryOccurrences(summary), seed);
+  return best ? { start_date: best.start_date, end_date: best.end_date } : seed;
 }
 
 // Header label for the displayed period: the actual month name(s) when periods

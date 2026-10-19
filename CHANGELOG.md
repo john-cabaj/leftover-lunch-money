@@ -4,6 +4,26 @@ All notable changes to this widget. Releases follow the repo's `refs/tags/vN`
 tags; commit messages use conventional prefixes (`fix:`, `feat:`, `refactor:`,
 `style:`, `docs:`).
 
+## v10 — 2026-10-19
+
+- `feat`: the displayed period's start/end now come from the API's own budget
+  boundaries instead of only the locally walked anchor. `/summary` is requested
+  with `include_occurrences` + `include_past_budget_dates`; `reconcilePeriodRange`
+  adopts the occurrence overlapping the locally computed seed — correcting a
+  wrong anchor or a granularity the local walk doesn't model (e.g. "twice a
+  month") — and when the seed misses, refetches `/summary` pinned to the real
+  period and repulls the unreviewed rows for that range. Aligned periods (the
+  norm) keep the existing single-call path.
+- `refactor`: the delete-pending count is no longer capped at 100. That pull
+  now sends no `limit` (using the API's default page size, raised to 1000 in
+  v2.8.3) like the unreviewed pull; the badge only tests the count for nonzero,
+  so the old cap bought nothing but a possible undercount.
+- `refactor`: dropped the dead per-category `rollover_pool` read and its
+  `available` fallback in `shapeBudgetRow` — the API removed category-level
+  `rollover_pool` (v2.11.0), and an aligned `/summary` always supplies
+  `available`, so the fallback never fired. `/summary` query params are now
+  built once in `summaryParams`.
+
 ## v9 — 2026-10-17
 
 - `feat`: full-month transactions taps keep the web app's quick search bar. The
