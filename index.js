@@ -316,7 +316,7 @@ const UPDATE_CHECK_KEY = "lunchMoneyUpdateCheck";
 // copies the new script and opens the editor for a manual paste (the project's
 // distribution model). SCRIPT_VERSION must be bumped on every release to match
 // the pushed tag; UPDATE_CHECK_MS throttles the check to once a day.
-const SCRIPT_VERSION = "v11";
+const SCRIPT_VERSION = "v12";
 const UPDATE_REPO = "john-cabaj/leftover-lunch-money";
 const UPDATE_CHECK_MS = 86400000; // 24 hours
 
@@ -442,8 +442,9 @@ const ACC_SLACK = 2;       // accessory: reserved so the last row never touches 
 // The Menlo transaction rows sit a hair to the LEFT of the Avenir captions at
 // the same leading origin — the two faces render their first glyph at slightly
 // different left bearings — so the Menlo rows take a small leading nudge to
-// share the caption's visual left edge. Applied to the lock-screen accessory's
-// transaction rows (addTransactionRow).
+// share the caption's visual left edge. Applied to every layout whose list
+// sits under a left-aligned caption (see menloInsetLayout): the medium review
+// split and the lock-screen rectangular accessory.
 // Calibrate on device: larger moves the Menlo text further right, negative
 // flips the direction.
 const MENLO_LEFT_INSET = 1;
@@ -2169,10 +2170,11 @@ function addUnreviewedEmpty(parent, status, config) {
 function addTransactionRow(parent, t, config, stale = false) {
   const row = parent.addStack();
   row.layoutHorizontally();
-  // The rectangular accessory's Menlo rows sit a hair left of the Avenir
-  // captions/badge (the faces' left bearings differ), so they take a
-  // MENLO_LEFT_INSET leading nudge to share the caption's visual left edge.
-  if (config.layout === "accessoryRectangular") row.addSpacer(MENLO_LEFT_INSET);
+  // The Menlo rows sit a hair left of the Avenir caption/badge above them (the
+  // faces' left bearings differ), so they take a MENLO_LEFT_INSET leading
+  // nudge to share the caption's visual left edge — on the layouts whose
+  // caption is left-aligned (medium review + rectangular accessory).
+  if (menloInsetLayout(config)) row.addSpacer(MENLO_LEFT_INSET);
   const fontSize = detailFontSize(config);
   // The payee is capped by the row's real width (medium review list column or
   // rectangular accessory inner width) so a long name truncates with "…"
@@ -2208,6 +2210,16 @@ function listWidth(config) {
   return null;
 }
 
+// Layouts whose unreviewed list sits under a LEFT-aligned Avenir caption (or
+// the badge line above it): the medium review split and the lock-screen
+// rectangular accessory. Their Menlo rows take the MENLO_LEFT_INSET leading
+// nudge (addTransactionRow) so they share the caption's visual left edge, and
+// the payee budget subtracts the same points (payeeMax). The large overview's
+// caption is centered, so no shared left edge exists there.
+function menloInsetLayout(config) {
+  return config.layout === "review" || config.layout === "accessoryRectangular";
+}
+
 // Max payee characters on one transaction row so a name truncates with "…"
 // while always leaving room for the fixed gap and the widest signed amount.
 // Widths come from the real list width the layout hands the row (listWidth) —
@@ -2218,7 +2230,8 @@ function payeeMax(config) {
   const fs = detailFontSize(config);
   const width = listWidth(config);
   if (width == null) return config.payeeLen || 16;
-  const room = Math.max(0, width - INLINE_GAP - textWidth(MAX_SIGNED_MONEY, fs));
+  const inset = menloInsetLayout(config) ? MENLO_LEFT_INSET : 0;
+  const room = Math.max(0, width - inset - INLINE_GAP - textWidth(MAX_SIGNED_MONEY, fs));
   return Math.max(4, Math.floor(room / charWidth(fs)));
 }
 

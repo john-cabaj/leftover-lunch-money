@@ -4,6 +4,20 @@ All notable changes to this widget. Releases follow the repo's `refs/tags/vN`
 tags; commit messages use conventional prefixes (`fix:`, `feat:`, `refactor:`,
 `style:`, `docs:`).
 
+## v12 — 2026-10-20
+
+- `fix`: the medium review list's Menlo transaction rows now take the
+  `MENLO_LEFT_INSET` leading nudge, so they share the "Unreviewed
+  Transactions" caption's (and the top-of-list badge's) visual left edge.
+  Avenir and Menlo render their first glyph at slightly different left
+  bearings, which made the caption read ~1pt indented against the rows below
+  it; the nudge previously reached only the lock-screen rectangular
+  accessory. `menloInsetLayout` names the layouts that get it (medium review
+  + rectangular accessory), and `payeeMax` subtracts the same points so the
+  payee width budget stays honest.
+- `docs`: `SCRIPT_VERSION` bumped to v12; README install links point at the
+  v12 tag.
+
 ## v11 — 2026-10-19
 
 - `feat`: the widget now notices new releases. Once a day it checks the latest
