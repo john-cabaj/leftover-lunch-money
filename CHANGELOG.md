@@ -4,6 +4,24 @@ All notable changes to this widget. Releases follow the repo's `refs/tags/vN`
 tags; commit messages use conventional prefixes (`fix:`, `feat:`, `refactor:`,
 `style:`, `docs:`).
 
+## v11 — 2026-10-19
+
+- `feat`: the widget now notices new releases. Once a day it checks the latest
+  GitHub release (`fetchUpdateInfo`, cached on disk for `UPDATE_CHECK_MS` and
+  failing silent) and, when it is newer than `SCRIPT_VERSION`, reuses the
+  shared top-of-list badge line to show a green "Update Available!"
+  (`BADGE_UPDATE_LABEL`, `UPDATE_GREEN`). Pending deletes always win the single
+  line, so the update notice only appears when nothing is awaiting a manual
+  delete. Tapping it (a `scriptable:///run?scriptName=…&update=<tag>` deep link,
+  a distinct `?update=` param — not `?url=`) fetches that tag's `index.js`,
+  copies it to the clipboard, and opens the script in the editor for a
+  paste-in update (`copyUpdateToClipboard`), leaving the user in Scriptable;
+  it never overwrites the script itself.
+- `refactor`: the badge line's trigger and height are now shared
+  (`hasBadgeLine`, unchanged `deletePendingBadgeHeight`) so the pending and
+  update messages reserve the same list space, and `sweepWidgetStorage` keeps
+  the update-check record alongside the period caches.
+
 ## v10 — 2026-10-19
 
 - `feat`: the displayed period's start/end now come from the API's own budget

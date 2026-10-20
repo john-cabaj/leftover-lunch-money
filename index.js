@@ -31,6 +31,11 @@
  *       metrics with the same line. Manual deletes are period-independent, so *
  *       the label counts ANY delete_pending transaction in the account (not   *
  *       just the displayed period); tapping opens the same UNFILTERED page.   *
+ *       The same line doubles as the widget's update notice — only when NO    *
+ *       deletes are pending and a newer release exists does it read green     *
+ *       "Update Available!"; tapping it copies the new index.js to the clip-  *
+ *       board and reopens this script in the editor to paste it (the widget   *
+ *       has no updater of its own).                                           *
  *                                                                             *
  ******************************************************************************/
 
@@ -67,9 +72,12 @@ const COLORS = {
 //   BRAND_GREEN — positive figures + the product title
 //   BRAND_YELLOW — captions / section labels
 //   LOSS_RED    — a negative leftover / the Delete Pending badge
+//   UPDATE_GREEN — the Update Available badge (LOSS_RED's counterpart: the same
+//                  muted saturation/lightness, hue mirrored across the wheel)
 const BRAND_GREEN = '#44958C';
 const BRAND_YELLOW = '#FBB700';
 const LOSS_RED = '#E15554';
+const UPDATE_GREEN = '#55A85E';
 
 // Typography follows the Lunch Money style guide: Avenir for titles and
 // labels, and a pre-installed monospace (Menlo) for every monetary figure
@@ -87,6 +95,7 @@ const regularColor = Color.white();
 const brandGreen = new Color(BRAND_GREEN);
 const brandYellow = new Color(BRAND_YELLOW);
 const lossRed = new Color(LOSS_RED);
+const updateGreen = new Color(UPDATE_GREEN);
 // iOS system green / red flag income (+) vs expenses (-) in a transaction row
 const incomeGreen = new Color('#34C759');
 const expenseRed = new Color('#FF3B30');
@@ -254,6 +263,15 @@ function transactionsTapUrl(data) {
   return transactionPageUrl(data, { include_pending: true });
 }
 
+// The update line's tap target: a scriptable:///run deep-link carrying the
+// record's updateTag as the ?update= parameter (NOT ?url=, so tappedTarget()
+// doesn't treat it as a web page). The SETUP tap branch reads it back and runs
+// the copy-the-new-script flow instead of presenting a WebView. Like appDeepLink
+// it names this script so a widget tap relaunches it.
+function updateTapUrl(data) {
+  return `scriptable:///run?scriptName=${encodeURIComponent(Script.name())}&update=${encodeURIComponent(data.updateTag)}`;
+}
+
 // Field of the /summary totals breakdown that feeds the outflow side of the
 // leftover. Outflow only sums the uncategorized buckets: transactions with no
 // category never appear in a category row, so they'd otherwise be counted as
@@ -289,6 +307,18 @@ const PREVIOUS_CACHE_KEY = "lunchMoneyCache_previous";
 const CACHE_FILE_NAMES = [CURRENT_CACHE_KEY, PREVIOUS_CACHE_KEY];
 const CACHE_KEY = SHOW_PREVIOUS_PERIOD ? PREVIOUS_CACHE_KEY : CURRENT_CACHE_KEY;
 const CACHED_MS = 600000; // 10 minutes
+// The update-check record file (see fetchUpdateInfo); kept outside the per-period
+// cache files so a period run's cache never clobbers the shared check result.
+const UPDATE_CHECK_KEY = "lunchMoneyUpdateCheck";
+
+// Update notice. The widget has no updater of its own — this only surfaces a
+// new release in the shared top-of-list line (BADGE_UPDATE_LABEL), whose tap
+// copies the new script and opens the editor for a manual paste (the project's
+// distribution model). SCRIPT_VERSION must be bumped on every release to match
+// the pushed tag; UPDATE_CHECK_MS throttles the check to once a day.
+const SCRIPT_VERSION = "v11";
+const UPDATE_REPO = "john-cabaj/leftover-lunch-money";
+const UPDATE_CHECK_MS = 86400000; // 24 hours
 
 // v2 renamed "uncleared" to "unreviewed"; match either so accounts mid-migration work
 const UNREVIEWED_STATUSES = ["unreviewed", "uncleared"];
@@ -444,6 +474,12 @@ const TITLE_SIZE = 12;
 // stacked widget (no unreviewed list) tops its metrics with the same line
 // (addStackedMetrics).
 const BADGE_PENDING_LABEL = "Deleted Transactions Pending!";
+// The Delete Pending line doubles as the update notice: when the account has
+// NO delete_pending transactions but a newer release exists, the same top-of-
+// list line reads "Update Available!" (in UPDATE_GREEN); tapping it copies the
+// new script to the clipboard and opens the editor. Pending transactions always
+// win the single line.
+const BADGE_UPDATE_LABEL = "Update Available!";
 const PERIOD_SIZE = 11;
 function headerBlockGap(config) {
   return pad(config, "headerGap", STACK_SPACING);
@@ -473,7 +509,7 @@ function headerHeight(config, measure = lineHeight) {
   return headerBlockHeight(config, measure) + (config.headerPad || 0);
 }
 
-// Vertical space the Delete Pending badge occupies at the top of the
+// Vertical space the top-of-list badge occupies at the top of the
 // unreviewed list column: one caption-weighted line above the caption, plus
 // LIST_BOTTOM_SLACK breathing room so the list never sits flush against the
 // widget's height limit while the badge is up (a flush list can clip the top
@@ -483,8 +519,9 @@ function headerHeight(config, measure = lineHeight) {
 // lock-screen accessory, whose list fits by the same budget); the small stacked
 // widget's badge line sits in the widget's on-device slack above the metrics
 // instead and reserves nothing, and layouts without an unreviewed list never
-// show the badge. Zero when no transactions await deletion
-// so fitted row counts only shrink when the badge actually shows.
+// show the badge. The badge shows for EITHER message (hasBadgeLine: pending
+// deletes or, when none, an available update), so the fitted row counts shrink
+// whenever that one line is up — whichever of the two it is.
 // The badge line itself is reserved at the LEAN box (like the review header and
 // caption): WidgetKit layers text tighter than Font.lineHeight, so reserving
 // the full measured line under-couns and wastes part of a row while the badge
@@ -492,9 +529,16 @@ function headerHeight(config, measure = lineHeight) {
 // one line, and never near the width edge or the top clip zone.
 const LIST_BOTTOM_SLACK = 2; // guaranteed gap under the last row / badge line
 function deletePendingBadgeHeight(data, config) {
-  if (!config || !hasDeletePending(data)) return 0;
+  if (!config || !hasBadgeLine(data)) return 0;
   if (config.layout !== "review" && config.layout !== "overview" && config.layout !== "accessoryRectangular") return 0;
   return leanLineHeight(config.caption) + LIST_BOTTOM_SLACK;
+}
+
+// True when the shared top-of-list line renders either message: pending delete
+// transactions OR, only when there are none, an available update. Pending wins
+// the single line, so an available update never hides a delete warning.
+function hasBadgeLine(data) {
+  return hasDeletePending(data) || hasUpdate(data);
 }
 
 // True when synced transactions await a manual delete (the Delete Pending
@@ -606,19 +650,32 @@ const LAYOUT_RENDERERS = {
 // can read it; assigned in the boot sequence below.
 let LM_ACCESS_TOKEN = null;
 
-// The deep-link to present for this run, or "" when it boots. Scriptable can
-// inject URL-scheme arguments a tick after a cold start; the one-beat wait
-// (nextTick) stops a late-arriving tap from being misread as a boot, and gives
-// a cold-launched WebView presentation a settled UI to present from.
+// The action this run should take after the one-beat cold-start wait:
+//   { kind: "update", tag }  — the "Update Available!" line's tap
+//   { kind: "page", url }    — a normal tap (a Lunch Money page / fallback)
+//   null                     — not a tap: run the boot sequence
+// The update tap must be recognized BEFORE the page/fallback checks: it carries
+// no ?url=, so cameFromTap() would otherwise route it to the transactions
+// fallback page.
 async function resolveTap() {
-  if (config.runsInWidget) return "";
+  if (config.runsInWidget) return null;
   await nextTick();
+  const tag = tappedUpdateTag();
+  if (tag) return { kind: "update", tag };
   const target = tappedTarget();
-  if (target) return target;
+  if (target) return { kind: "page", url: target };
   if (cameFromTap()) {
-    return fallbackTapUrl();
+    return { kind: "page", url: await fallbackTapUrl() };
   }
-  return "";
+  return null;
+}
+
+// The ?update= tag a widget's "Update Available!" tap was launched with, or ""
+// when this run isn't an update tap. Read like tappedTarget's ?url= (URL-scheme
+// arguments land in args.queryParameters).
+function tappedUpdateTag() {
+  if (config.runsInWidget) return "";
+  return String(args.queryParameters.update || "");
 }
 
 // Waits one event-loop turn so a cold-starting Scriptable has a moment to finish
@@ -633,9 +690,15 @@ function nextTick() {
   });
 }
 
-const tapTarget = await resolveTap();
-if (tapTarget) {
-  await presentWebPage(tapTarget);
+const tapAction = await resolveTap();
+if (tapAction && tapAction.kind === "update") {
+  // The "Update Available!" line's tap: fetch the new script, copy it to the
+  // clipboard, and open this script in the editor so the user can paste over
+  // it — no browser, no hunting for the file. Unlike a page tap this leaves the
+  // user IN Scriptable (the editor), so it does NOT call App.close().
+  await copyUpdateToClipboard(tapAction.tag);
+} else if (tapAction) {
+  await presentWebPage(tapAction.url);
   // present() resolves only when the user closes the WebView, so this App.close
   // (Scriptable's undocumented return-to-home-screen) fires only after a tapped
   // page was dismissed — never out from under it. Widget renders never reach
@@ -740,6 +803,40 @@ async function presentWebPage(url) {
   }
 }
 
+// The "Update Available!" tap handler: download index.js for the newer tag from
+// the repo's raw tag URL (the same file the README links for manual installs),
+// copy it to the clipboard, then reopen this script in the editor so the user
+// can select-all and paste the new version over the old one — a quick two-tap
+// upgrade with no browser or file hunting. On any failure it falls back to
+// opening the release page so the tap still lands somewhere useful.
+async function copyUpdateToClipboard(tag) {
+  const releaseUrl = `https://github.com/${UPDATE_REPO}/releases/tag/${encodeURIComponent(tag)}`;
+  try {
+    const request = new Request(
+      `https://raw.githubusercontent.com/${UPDATE_REPO}/refs/tags/${encodeURIComponent(tag)}/index.js`
+    );
+    request.timeoutInterval = REQUEST_TIMEOUT;
+    const source = await request.loadString();
+    // A raw 404 page (or any non-script body) shouldn't be pasted over the
+    // user's working copy; only accept something that looks like the script.
+    if (!source || source.length < 100) throw new Error("empty update body");
+
+    Pasteboard.copyString(source);
+
+    const alert = new Alert();
+    alert.title = `Update ${tag} copied`;
+    alert.message = "The new version has been copied to your clipboard. Open this script in the editor and paste over the existing code to finish updating.";
+    alert.addAction("Open Editor");
+    alert.addCancelAction("Later");
+    const choice = await alert.presentAlert();
+    if (choice === 0) {
+      Safari.open(`scriptable:///open?scriptName=${encodeURIComponent(Script.name())}`);
+    }
+  } catch (e) {
+    Safari.open(releaseUrl);
+  }
+}
+
 /****************************************************
              WIDGET
 *****************************************************/
@@ -839,6 +936,12 @@ async function getAllData() {
 
   if (data) {
     data.lastUpdated = Date.now();
+    // The update tag is fetched on this (fetch) path only — a fresh cache reuse
+    // above skips it — and fetchUpdateInfo throttles itself to once a day, so
+    // this costs at most one request per day. The fetch and any tap run share
+    // the same on-disk check record. A failed check yields no tag (no notice).
+    const update = await fetchUpdateInfo();
+    data.updateTag = update && update.tag ? update.tag : "";
     writeCache(data);
     return data;
   }
@@ -1060,6 +1163,37 @@ function carryForwardSideList(status, value, prevValue, prevUpdatedAt, now) {
     status: carried ? "stale" : "failed",
     updatedAt: carried ? prevUpdatedAt : now
   };
+}
+
+// Looks up the newest release tag without hammering GitHub: the result (and the
+// time it was fetched) is cached on disk and reused for UPDATE_CHECK_MS, so the
+// API is hit at most once a day. Returns the deferred-check record — always a
+// {tag, checkedAt} object (tag null/equal to SCRIPT_VERSION means current) — or
+// null on a failed fetch with no cached answer to fall back on. Never throws:
+// an update check must never block the widget's own render.
+async function fetchUpdateInfo() {
+  const cached = readUpdateCheck();
+  if (cached && Date.now() - (cached.checkedAt || 0) < UPDATE_CHECK_MS) {
+    return cached;
+  }
+  try {
+    const request = new Request(`https://api.github.com/repos/${UPDATE_REPO}/releases/latest`);
+    request.headers = { "User-Agent": "leftover-lunch-money-widget" };
+    request.timeoutInterval = REQUEST_TIMEOUT;
+    const release = await request.loadJSON();
+    const tag = release && release.tag_name ? String(release.tag_name) : "";
+    const info = { tag: tag && tag !== SCRIPT_VERSION ? tag : "", checkedAt: Date.now() };
+    writeUpdateCheck(info);
+    return info;
+  } catch (e) {
+    return cached || null;
+  }
+}
+
+// True when a newer release than SCRIPT_VERSION was found (the update line's
+// trigger; pending transactions take precedence over it)
+function hasUpdate(data) {
+  return !!data && !!data.updateTag;
 }
 
 // When a side list was last successfully fetched. The per-field stamp doesn't
@@ -1541,20 +1675,48 @@ function writeCache(data) {
 }
 
 // Best-effort janitor for Scriptable's widget folder: removes every entry that
-// isn't a current period cache (CACHE_FILE_NAMES), so retired or unexpected
+// isn't a current period cache (CACHE_FILE_NAMES) or the update-check record
+// (UPDATE_CHECK_KEY), so retired or unexpected
 // files — the dropped diagnostics.txt, OS cruft like .DS_Store, anything a
 // future version stops using — can't linger on device. Runs on the boot path
-// only and never touches the caches, so it's cache-safe on every run.
+// only and never touches the caches or the update record, so it's safe on every
+// run.
 function sweepWidgetStorage() {
   const fm = FileManager.local();
   const folder = widgetFolder();
+  const keep = CACHE_FILE_NAMES.concat(UPDATE_CHECK_KEY);
   try {
     if (!fm.fileExists(folder)) return;
     for (const entry of fm.listContents(folder)) {
-      if (!CACHE_FILE_NAMES.includes(entry)) fm.remove(folder + "/" + entry);
+      if (!keep.includes(entry)) fm.remove(folder + "/" + entry);
     }
   } catch (e) {
     // best-effort: a failed sweep must not block the boot sequence
+  }
+}
+
+// The update-check record lives OUTSIDE the per-period cache files (it's not
+// period data), which is why the sweep above keeps UPDATE_CHECK_KEY.
+function updateCheckPath() { return widgetFolder() + "/" + UPDATE_CHECK_KEY; }
+
+// The last update-check result ({tag, checkedAt}) or null when none is stored
+function readUpdateCheck() {
+  try {
+    const raw = FileManager.local().readString(updateCheckPath());
+    return raw ? JSON.parse(raw) : null;
+  } catch (e) {
+    return null;
+  }
+}
+
+// Persists the update-check record; best-effort like writeCache
+function writeUpdateCheck(info) {
+  try {
+    const fm = FileManager.local();
+    ensureWidgetFolder();
+    fm.writeString(updateCheckPath(), JSON.stringify(info));
+  } catch (e) {
+    // ignore: the check simply re-runs next time
   }
 }
 
@@ -1596,9 +1758,10 @@ function addBreakdownSection(parent, data, config) {
 // target (Scriptable/WidgetKit: element urls are honored on medium/large only),
 // so the whole widget's tap opens Budget via widget.url — neither the
 // Delete Pending label nor the metrics carry their own stack urls here (they'd
-// never fire). When synced transactions await a manual delete, the full red
-// "Deleted Transactions Pending!" label — the same caption-weighted line the
-// list layouts show — tops the metrics above the Inflow caption. It needs only
+// never fire). When synced transactions await a manual delete — or, with none,
+// a newer release is available — the same caption-weighted line the list
+// layouts show ("Deleted Transactions Pending!" in red, else "Update
+// Available!" in green) tops the metrics above the Inflow caption. It needs only
 // leanLineHeight(caption) of the widget's real on-device slack (WidgetKit lays
 // Avenir tighter than Font.lineHeight — the same slack the review layout
 // reclaims for row counts), so no existing size or padding changes; a full
@@ -1608,7 +1771,7 @@ function addStackedMetrics(parent, data, config) {
   stack.layoutVertically();
   stack.layoutWeight = 1;
   stack.topAlignContent();
-  if (hasDeletePending(data)) addDeletePendingBadge(stack, data, config, { alignLeft: true });
+  if (hasBadgeLine(data)) addDeletePendingBadge(stack, data, config, { alignLeft: true });
   addMetrics(stack, data, config, {
     amountSize: config.amount,
     alignRight: true,
@@ -1671,21 +1834,27 @@ function addBrandTitle(parent, data, config) {
   row.addSpacer();
 }
 
-// "Deleted Transactions Pending" label, shown once at the TOP of the
-// unreviewed list column — above the "Unreviewed Transactions" caption —
-// on review, overview, and rectangular-accessory layouts: exactly the
-// caption's font and size (boldFont(config.caption)) in the palette's loss
-// red, tappable to open EVERY transaction filtered to status=delete_pending —
-// no date filter, so it shows all of them regardless of the widget's period. It
-// never scales down (full caption size, like the caption itself), stays on one
-// line — the label fits the narrowest list column (~188pt on the SE 1st-gen
-// medium vs ≈186pt at 13pt, and ≈143pt at the rectangular accessory's 10pt
-// caption vs a 145pt inner width), so it never needs to scale down. Reserves
-// leanLineHeight(caption) + LIST_BOTTOM_SLACK via
-// deletePendingBadgeHeight so the list loses part of one row while it's up and
-// never runs flush against the widget's height limit (flush lists can clip the
-// widget top). The label is NOT placed inside any stack that already carries a
-// tap URL — the parent column stack drops the unreviewed URL so Scriptable's
+// The shared top-of-list line, shown once at the TOP of the unreviewed list
+// column — above the "Unreviewed Transactions" caption — on review, overview,
+// and rectangular-accessory layouts, styled as exactly the caption's font and
+// size (boldFont(config.caption)), on one line that never scales down. It
+// carries one of two messages, pending deletes taking precedence over an update:
+//   - pending deletes (data.deletePendingCount > 0): "Deleted Transactions
+//     Pending!" in the palette's loss red, tapping through to EVERY transaction
+//     filtered to status=delete_pending — no date filter, so it shows all of
+//     them regardless of the widget's period.
+//   - otherwise, an available update (data.updateTag): "Update Available!" in
+//     the UPDATE_GREEN, tapping through to the copy-the-new-script flow (fetch
+//     index.js, copy it, reopen the editor) — the widget has no updater of its
+//     own.
+// It stays on one line — the longer pending label fits the narrowest list column
+// (~188pt on the SE 1st-gen medium vs ≈186pt at 13pt, and ≈143pt at the
+// rectangular accessory's 10pt caption vs a 145pt inner width), so it never
+// needs to scale down. It reserves leanLineHeight(caption) + LIST_BOTTOM_SLACK
+// via deletePendingBadgeHeight so the list loses part of one row while it's up
+// and never runs flush against the widget's height limit (flush lists can clip
+// the widget top). The label is NOT placed inside any stack that already carries
+// a tap URL — the parent column stack drops the unreviewed URL so Scriptable's
 // tap hit-testing resolves to the label's own URL (a parent stack's URL can
 // shadow a child label's).
 // Alignment mirrors the "Unreviewed Transactions" caption it sits above:
@@ -1694,18 +1863,19 @@ function addBrandTitle(parent, data, config) {
 // the same addTextRow alignment the caption uses. The accessory also stretches
 // the badge row across the column (stretch), matching the caption and the
 // transaction rows' flush-left edge under the lock screen's centering stack,
-// and overrides the red with the standard label color (brandYellow) — lock
-// screens color labels one way and amounts another, so the badge reads as a
+// and overrides the pending red with the standard label color (brandYellow) —
+// lock screens color labels one way and amounts another, so the badge reads as a
 // label there instead of as a loss amount.
 function addDeletePendingBadge(parent, data, config, opts = {}) {
-  const { row, label } = addTextRow(parent, BADGE_PENDING_LABEL, {
+  const updateOnly = !hasDeletePending(data) && hasUpdate(data);
+  const { row, label } = addTextRow(parent, updateOnly ? BADGE_UPDATE_LABEL : BADGE_PENDING_LABEL, {
     font: boldFont(config.caption),
-    color: opts.color || lossRed,
+    color: opts.color || (updateOnly ? updateGreen : lossRed),
     alignLeft: opts.alignLeft,
     stretch: opts.stretch
   });
   label.lineLimit = 1;
-  label.url = deletePendingTapUrl();
+  label.url = updateOnly ? updateTapUrl(data) : deletePendingTapUrl();
   return label;
 }
 
@@ -1733,17 +1903,19 @@ function addMetricColumn(parentRow, metric, data, config) {
 }
 
 // The unreviewed transactions column shared by the medium (review), large
-// (overview), and rectangular-accessory layouts: an optional Delete Pending
-// badge above the "Unreviewed Transactions" caption, then the rows. On the home
+// (overview), and rectangular-accessory layouts: an optional top-of-list line
+// (the Delete Pending or Update Available badge) above the "Unreviewed
+// Transactions" caption, then the rows. On the home
 // screens the caption row and the list stack both carry the unreviewed tap URL —
 // the "limit the unreviewed tap target to the label + list rows" convention —
-// while the badge's own delete-pending URL stays reachable because neither its
-// parent column nor any ancestor stack sets a URL (a parent stack's url can
-// shadow a child's). The lock-screen rectangular accessory keeps the whole
-// column URL-free (tappable: false) so a tap anywhere on it can never shadow the
-// badge target, and it passes the accessory's stretch + label-color options.
+// while the badge's own URL (delete-pending or update) stays reachable because
+// neither its parent column nor any ancestor stack sets a URL (a parent
+// stack's url can shadow a child's). The lock-screen rectangular accessory keeps
+// the whole column URL-free (tappable: false) so a tap anywhere on it can never
+// shadow the badge target, and it passes the accessory's stretch + label-color
+// options.
 function addUnreviewedSection(parent, data, config, opts = {}) {
-  if (hasDeletePending(data)) {
+  if (hasBadgeLine(data)) {
     addDeletePendingBadge(parent, data, config, opts);
   }
   const caption = addCaption(parent, "Unreviewed Transactions", config.caption, opts.alignLeft, opts.stretch);

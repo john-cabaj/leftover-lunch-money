@@ -102,6 +102,7 @@ function loadPureLogic() {
     unreviewedTapUrl: context.unreviewedTapUrl,
     deletePendingTapUrl: context.deletePendingTapUrl,
     transactionsTapUrl: context.transactionsTapUrl,
+    updateTapUrl: context.updateTapUrl,
     formatMoney: context.formatMoney,
     formatDateString: context.formatDateString,
     parseIsoDate: context.parseIsoDate,
@@ -543,6 +544,12 @@ describe('tap URL builders (golden)', () => {
       'scriptable:///run?scriptName=index&url=https%3A%2F%2Fmy.lunchmoney.app%2Ftransactions%2F2026%2F06%3Finclude_pending%3Dtrue'
     );
   });
+  test('updateTapUrl: a scriptable:///run deep-link carrying ?update=<tag>, NOT ?url=', () => {
+    assert.equal(
+      pure.updateTapUrl({ updateTag: 'v11' }),
+      'scriptable:///run?scriptName=index&update=v11'
+    );
+  });
   test('transactionPageUrl: a custom period keeps its time=custom range', () => {
     assert.equal(
       pure.transactionPageUrl({ periodStart: '2026-03-15', periodEnd: '2026-04-14' }, { include_pending: true }),
@@ -583,7 +590,7 @@ describe('tap URL builders (golden)', () => {
 const LAYOUT_FNS = [
   'lineHeight', 'monoLineHeight', 'monoRegularLineHeight', 'leanLineHeight',
   'rowFitHeight', 'listHeightBudget', 'maxUnreviewedCount',
-  'deletePendingBadgeHeight', 'hasDeletePending', 'smallAmountFont', 'textWidth'
+  'deletePendingBadgeHeight', 'hasDeletePending', 'hasBadgeLine', 'hasUpdate', 'smallAmountFont', 'textWidth'
 ];
 const LAYOUT_CONSTS = ['WIDGET_SIZE', 'ACCESSORY_SIZE', 'WIDGET_INNER_WIDTH', 'LIST_COLUMN_WIDTH', 'WIDGET_HEIGHTS', 'FAMILY_LAYOUTS'];
 
@@ -626,6 +633,9 @@ const RICH = {
   deletePendingCount: 0
 };
 const RICH_BADGE = { ...RICH, deletePendingCount: 3 };
+// An update-only record (no pending deletes) shares the same top-of-list line,
+// so it must reserve the same badge height as the pending case.
+const RICH_UPDATE = { ...RICH, deletePendingCount: 0, updateTag: 'v11' };
 const LIST_FAMILY = ['medium', 'large', 'accessoryRectangular'];
 const LIST_LAYOUT = { medium: 'review', large: 'overview', accessoryRectangular: 'accessoryRectangular' };
 
@@ -715,6 +725,21 @@ describe('widget layout (deterministic fit math)', () => {
     const { L } = layoutAt(844);
     assert.equal(L.hasDeletePending(RICH_BADGE), true);
     assert.equal(L.hasDeletePending(RICH), false);
+    assert.equal(L.hasUpdate(RICH_UPDATE), true);
+    assert.equal(L.hasUpdate(RICH), false);
+    // pending deletes and an available update share the same line/reserve; an
+    // update is only shown when nothing is pending.
+    assert.equal(L.hasBadgeLine(RICH_BADGE), true);
+    assert.equal(L.hasBadgeLine(RICH_UPDATE), true);
+    assert.equal(L.hasBadgeLine(RICH), false);
+    for (const family of LIST_FAMILY) {
+      const cfg = L.FAMILY_LAYOUTS[family];
+      assert.equal(
+        L.deletePendingBadgeHeight(RICH_UPDATE, cfg),
+        L.deletePendingBadgeHeight(RICH_BADGE, cfg),
+        `${family} update reserves the same line as pending`
+      );
+    }
   });
 
   test('maxUnreviewedCount caps at the loaded items', () => {
