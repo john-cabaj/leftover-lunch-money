@@ -12,7 +12,9 @@ if git diff --cached --name-only --diff-filter=ACM | grep -qE '(^|/)index\.js$';
 fi
 
 # Run the pure-logic test suite when index.js or the tests themselves changed.
-if git diff --cached --name-only --diff-filter=ACM | grep -qE '(^|/)(index\.js|test/)'; then
+# tools/ is included: the scope map and the harness encode what index.js does,
+# and test/repo-consistency.test.js guards that map against index.js.
+if git diff --cached --name-only --diff-filter=ACM | grep -qE '(^|/)(index\.js|test/|tools/)'; then
   node --test test/*.test.js || {
     echo "pre-commit: test suite failed."
     echo "Run \`node --test test/*.test.js\` and fix failures before committing."

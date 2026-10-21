@@ -146,12 +146,13 @@ const OVERVIEW_METRIC_ORDER = ["inflow", "leftover", "outflow"];
 
 // Widest monetary strings the layout budgets around: the 10-char figure every
 // amount pads/right-justifies to, and the signed worst case a transaction row
-// reserves next to its payee. DECLARED UP HERE because (a) the small layout's
-// amount font derives from MAX_MONEY's width, and (b) the payee budget for the
-// medium list needs the signed worst case. (formatMoney is a hoisted function,
-// so calling it during module init is fine.)
+// reserves next to its payee. Both come from the formatter itself, so neither
+// can drift from how amounts are actually written. DECLARED UP HERE because
+// (a) the small layout's amount font derives from MAX_MONEY's width, and (b)
+// the payee budget for the medium list needs the signed worst case.
+// (formatMoney is a hoisted function, so calling it during module init is fine.)
 const MAX_MONEY = formatMoney(99999);
-const MAX_SIGNED_MONEY = "+$999,999.99";
+const MAX_SIGNED_MONEY = "+" + formatMoney(999999.99);
 
 // --------------------------------------------------------------------------
 // Lunch Money API
@@ -315,8 +316,10 @@ const UPDATE_CHECK_KEY = "lunchMoneyUpdateCheck";
 // new release in the shared top-of-list line (BADGE_UPDATE_LABEL), whose tap
 // copies the new script and opens the editor for a manual paste (the project's
 // distribution model). SCRIPT_VERSION must be bumped on every release to match
-// the pushed tag; UPDATE_CHECK_MS throttles the check to once a day.
-const SCRIPT_VERSION = "v12";
+// the pushed tag; UPDATE_CHECK_MS throttles the check to once a day. The check
+// reads the repo's git TAGS (see fetchUpdateInfo) — this project ships each
+// version as a tag and publishes no GitHub Release objects.
+const SCRIPT_VERSION = "v13";
 const UPDATE_REPO = "john-cabaj/leftover-lunch-money";
 const UPDATE_CHECK_MS = 86400000; // 24 hours
 
@@ -501,8 +504,8 @@ function headerBlockHeight(config, measure = lineHeight) {
 // plus any per-layout headerPad pushed in above the title. The pad doesn't push
 // the body down (the trailing flexible spacer absorbs it), but the row budgets
 // still account for it so list rows never cross the widget's bottom edge. The
-// Delete Pending badge lives in the unreviewed list column, not the header, so
-// it is reserved by listHeightBudget instead (deletePendingBadgeHeight).
+// shared top-of-list line lives in the unreviewed list column, not the header,
+// so it is reserved by listHeightBudget instead (badgeLineHeight).
 // measure is the line box the height is budgeted at: the full Avenir box by
 // default, the lean box where a budget reserves WidgetKit's tighter rendering
 // (the review list budget).
@@ -510,28 +513,33 @@ function headerHeight(config, measure = lineHeight) {
   return headerBlockHeight(config, measure) + (config.headerPad || 0);
 }
 
-// Vertical space the top-of-list badge occupies at the top of the
+// Vertical space the shared top-of-list line occupies at the top of the
 // unreviewed list column: one caption-weighted line above the caption, plus
 // LIST_BOTTOM_SLACK breathing room so the list never sits flush against the
-// widget's height limit while the badge is up (a flush list can clip the top
+// widget's height limit while the line is up (a flush list can clip the top
 // of the widget, and the review layout already builds the same 2pt slack into
-// WIDGET_HEIGHTS). Only layouts that render an unreviewed list under a caption
-// reserve it (review / overview / accessoryRectangular — the rectangular
-// lock-screen accessory, whose list fits by the same budget); the small stacked
-// widget's badge line sits in the widget's on-device slack above the metrics
-// instead and reserves nothing, and layouts without an unreviewed list never
-// show the badge. The badge shows for EITHER message (hasBadgeLine: pending
-// deletes or, when none, an available update), so the fitted row counts shrink
-// whenever that one line is up — whichever of the two it is.
-// The badge line itself is reserved at the LEAN box (like the review header and
+// WIDGET_HEIGHTS). Only the layouts that render an unreviewed list under a
+// caption reserve it (BADGE_RESERVE_LAYOUTS); the small stacked widget's line
+// sits in the widget's on-device slack above the metrics instead and reserves
+// nothing, and layouts without an unreviewed list never show it. The line
+// shows for EITHER message (hasBadgeLine: pending deletes or, when none, an
+// available update), so the fitted row counts shrink whenever that one line is
+// up — whichever of the two it is.
+// The line itself is reserved at the LEAN box (like the review header and
 // caption): WidgetKit layers text tighter than Font.lineHeight, so reserving
-// the full measured line under-couns and wastes part of a row while the badge
-// is up. Nothing about the badge's own fit is at risk — the label is short,
+// the full measured line under-couns and wastes part of a row while the line
+// is up. Nothing about the line's own fit is at risk — the label is short,
 // one line, and never near the width edge or the top clip zone.
 const LIST_BOTTOM_SLACK = 2; // guaranteed gap under the last row / badge line
-function deletePendingBadgeHeight(data, config) {
+
+// The layouts whose unreviewed list sits under a caption, and therefore
+// reserve the top-of-list line's height. The small stacked widget renders the
+// line too, but rides the widget's own on-device slack and reserves nothing.
+const BADGE_RESERVE_LAYOUTS = ["review", "overview", "accessoryRectangular"];
+
+function badgeLineHeight(data, config) {
   if (!config || !hasBadgeLine(data)) return 0;
-  if (config.layout !== "review" && config.layout !== "overview" && config.layout !== "accessoryRectangular") return 0;
+  if (!BADGE_RESERVE_LAYOUTS.includes(config.layout)) return 0;
   return leanLineHeight(config.caption) + LIST_BOTTOM_SLACK;
 }
 
@@ -603,6 +611,13 @@ const FAMILY_LAYOUTS = {
   accessoryInline: { layout: "accessoryInline", accessory: true, padTop: 0, padBottom: 0, padSide: 8 },
   undefined:  smallLayout
 };
+
+// The layouts whose widget-wide tap opens Budget instead of the transactions
+// view: the stacked small widget and the leftover-only lock-screen accessories
+// (the circular ring and the inline strip). Those are the single-target
+// widgets — one tap covers the whole widget — so Budget is the one target
+// worth having.
+const BUDGET_ONLY_LAYOUTS = ["stacked", "accessoryCircular", "accessoryInline"];
 
 // Each layout name maps to its body renderer; renderWidget just dispatches on it
 // — the same table-driven shape METRICS and FAMILY_LAYOUTS use. Review, overview,
@@ -809,9 +824,12 @@ async function presentWebPage(url) {
 // copy it to the clipboard, then reopen this script in the editor so the user
 // can select-all and paste the new version over the old one — a quick two-tap
 // upgrade with no browser or file hunting. On any failure it falls back to
-// opening the release page so the tap still lands somewhere useful.
+// opening the tag's page so the tap still lands somewhere useful.
 async function copyUpdateToClipboard(tag) {
-  const releaseUrl = `https://github.com/${UPDATE_REPO}/releases/tag/${encodeURIComponent(tag)}`;
+  // The repo's release page for the tag: this project ships versions as git
+  // tags and publishes no GitHub Release objects, so the /releases/tag/ path
+  // would 404 — the tag's own tree page is the one that always exists.
+  const tagUrl = `https://github.com/${UPDATE_REPO}/tree/${encodeURIComponent(tag)}`;
   try {
     const request = new Request(
       `https://raw.githubusercontent.com/${UPDATE_REPO}/refs/tags/${encodeURIComponent(tag)}/index.js`
@@ -834,7 +852,7 @@ async function copyUpdateToClipboard(tag) {
       Safari.open(`scriptable:///open?scriptName=${encodeURIComponent(Script.name())}`);
     }
   } catch (e) {
-    Safari.open(releaseUrl);
+    Safari.open(tagUrl);
   }
 }
 
@@ -893,9 +911,10 @@ async function getWidget() {
   mainStack.layoutVertically();
   mainStack.spacing = accessory ? 0 : STACK_SPACING;
   // The widget-wide tap URL (the fallback when no region was hit): the regular
-  // transactions view for the period — except on the stacked small widget and the
-  // leftover-only lock-screen accessories (circular ring + inline strip), whose
-  // single whole-widget target opens Budget, exactly like the small home-screen
+  // transactions view for the period — except on the single-target widgets
+  // (BUDGET_ONLY_LAYOUTS: the stacked small widget and the leftover-only
+  // lock-screen accessories, the circular ring and the inline strip), whose
+  // one whole-widget target opens Budget, exactly like the small home-screen
   // widget. A small widget supports only ONE tap target (Scriptable/WidgetKit:
   // element urls are honored on medium/large only, and the small widget opens
   // whatever widget.url holds no matter where it's tapped), and the circular and
@@ -906,8 +925,9 @@ async function getWidget() {
   // gain full parity with the home screens (period baked in, no per-widget
   // configuration); if ignored, it's a no-op and the manual per-widget "Open URL"
   // path still covers url-less taps (which open the transactions fallback).
-  const budgetTap = layoutConfig.layout === "stacked" || layoutConfig.layout === "accessoryCircular" || layoutConfig.layout === "accessoryInline";
-  widget.url = budgetTap ? budgetTapUrl(lunchMoneyData) : transactionsTapUrl(lunchMoneyData);
+  widget.url = BUDGET_ONLY_LAYOUTS.includes(layoutConfig.layout)
+    ? budgetTapUrl(lunchMoneyData)
+    : transactionsTapUrl(lunchMoneyData);
   renderWidget(mainStack, lunchMoneyData, layoutConfig);
 
   return widget;
@@ -1166,24 +1186,55 @@ function carryForwardSideList(status, value, prevValue, prevUpdatedAt, now) {
   };
 }
 
+// The version number of a "vN" tag, or -1 for anything that isn't one
+function tagVersion(tag) {
+  const match = /^v(\d+)$/.exec(String(tag || ""));
+  return match ? parseInt(match[1], 10) : -1;
+}
+
+// The highest-numbered "vN" tag in GitHub's tag list. The list order is not a
+// version order, so the winner is picked by number rather than position.
+function newestTag(tags) {
+  const list = Array.isArray(tags) ? tags : [];
+  let best = "";
+  for (const entry of list) {
+    const name = entry && entry.name ? String(entry.name) : "";
+    if (tagVersion(name) > tagVersion(best)) best = name;
+  }
+  return best;
+}
+
+// True when the tag is a strictly newer version than the running script — a
+// build ahead of the latest tag (or an equal one) is not offered as an update
+function isNewerVersion(tag, current) {
+  const target = tagVersion(tag);
+  return target > 0 && target > tagVersion(current);
+}
+
 // Looks up the newest release tag without hammering GitHub: the result (and the
 // time it was fetched) is cached on disk and reused for UPDATE_CHECK_MS, so the
 // API is hit at most once a day. Returns the deferred-check record — always a
-// {tag, checkedAt} object (tag null/equal to SCRIPT_VERSION means current) — or
-// null on a failed fetch with no cached answer to fall back on. Never throws:
-// an update check must never block the widget's own render.
+// {tag, checkedAt} object (an empty tag means "no newer release") — or null on
+// a failed fetch with no cached answer to fall back on. Never throws: an update
+// check must never block the widget's own render.
+//
+// The source of truth is the repo's TAGS, not its Releases: this project ships
+// a version as a git tag (refs/tags/vN — the install link and the download in
+// copyUpdateToClipboard both use that path) and publishes no GitHub Release
+// objects at all. The releases API would 404 on every check, so the notice
+// would never appear no matter how long the widget waited.
 async function fetchUpdateInfo() {
   const cached = readUpdateCheck();
   if (cached && Date.now() - (cached.checkedAt || 0) < UPDATE_CHECK_MS) {
     return cached;
   }
   try {
-    const request = new Request(`https://api.github.com/repos/${UPDATE_REPO}/releases/latest`);
+    const request = new Request(`https://api.github.com/repos/${UPDATE_REPO}/tags?per_page=100`);
     request.headers = { "User-Agent": "leftover-lunch-money-widget" };
     request.timeoutInterval = REQUEST_TIMEOUT;
-    const release = await request.loadJSON();
-    const tag = release && release.tag_name ? String(release.tag_name) : "";
-    const info = { tag: tag && tag !== SCRIPT_VERSION ? tag : "", checkedAt: Date.now() };
+    const tags = await request.loadJSON();
+    const tag = newestTag(tags);
+    const info = { tag: isNewerVersion(tag, SCRIPT_VERSION) ? tag : "", checkedAt: Date.now() };
     writeUpdateCheck(info);
     return info;
   } catch (e) {
@@ -1191,10 +1242,14 @@ async function fetchUpdateInfo() {
   }
 }
 
-// True when a newer release than SCRIPT_VERSION was found (the update line's
-// trigger; pending transactions take precedence over it)
+// True when a release NEWER than the running script is available (the update
+// line's trigger; pending transactions take precedence over it). The tag is
+// compared against SCRIPT_VERSION here instead of being taken at face value:
+// the record (and the tag it carries) can be cached from before an update, and
+// a tag that is not newer than the script that is running must never raise an
+// update notice.
 function hasUpdate(data) {
-  return !!data && !!data.updateTag;
+  return !!data && !!data.updateTag && isNewerVersion(data.updateTag, SCRIPT_VERSION);
 }
 
 // When a side list was last successfully fetched. The per-field stamp doesn't
@@ -1772,7 +1827,7 @@ function addStackedMetrics(parent, data, config) {
   stack.layoutVertically();
   stack.layoutWeight = 1;
   stack.topAlignContent();
-  if (hasBadgeLine(data)) addDeletePendingBadge(stack, data, config, { alignLeft: true });
+  if (hasBadgeLine(data)) addBadgeLine(stack, data, config, { alignLeft: true });
   addMetrics(stack, data, config, {
     amountSize: config.amount,
     alignRight: true,
@@ -1852,7 +1907,7 @@ function addBrandTitle(parent, data, config) {
 // (~188pt on the SE 1st-gen medium vs ≈186pt at 13pt, and ≈143pt at the
 // rectangular accessory's 10pt caption vs a 145pt inner width), so it never
 // needs to scale down. It reserves leanLineHeight(caption) + LIST_BOTTOM_SLACK
-// via deletePendingBadgeHeight so the list loses part of one row while it's up
+// via badgeLineHeight so the list loses part of one row while it's up
 // and never runs flush against the widget's height limit (flush lists can clip
 // the widget top). The label is NOT placed inside any stack that already carries
 // a tap URL — the parent column stack drops the unreviewed URL so Scriptable's
@@ -1867,7 +1922,7 @@ function addBrandTitle(parent, data, config) {
 // and overrides the pending red with the standard label color (brandYellow) —
 // lock screens color labels one way and amounts another, so the badge reads as a
 // label there instead of as a loss amount.
-function addDeletePendingBadge(parent, data, config, opts = {}) {
+function addBadgeLine(parent, data, config, opts = {}) {
   const updateOnly = !hasDeletePending(data) && hasUpdate(data);
   const { row, label } = addTextRow(parent, updateOnly ? BADGE_UPDATE_LABEL : BADGE_PENDING_LABEL, {
     font: boldFont(config.caption),
@@ -1917,7 +1972,7 @@ function addMetricColumn(parentRow, metric, data, config) {
 // options.
 function addUnreviewedSection(parent, data, config, opts = {}) {
   if (hasBadgeLine(data)) {
-    addDeletePendingBadge(parent, data, config, opts);
+    addBadgeLine(parent, data, config, opts);
   }
   const caption = addCaption(parent, "Unreviewed Transactions", config.caption, opts.alignLeft, opts.stretch);
   const list = parent.addStack();
@@ -2069,32 +2124,31 @@ function listHeightBudget(data, config) {
   const height = WIDGET_HEIGHTS[config.layout];
   if (config.layout === "review") {
     // medium: list shares the row's fixed height with the metrics column; the
-    // top Delete Pending badge reserves its line + LIST_BOTTOM_SLACK
-    // (deletePendingBadgeHeight) before the rows. The header and caption are
-    // reserved at the LEAN line box — WidgetKit lays text tighter than
-    // Font.lineHeight (the same visible slack the small widget's badge line
-    // lives in) — so the rows pick up the space that actually shows instead of
-    // leaving it empty.
+    // top-of-list line reserves its line + LIST_BOTTOM_SLACK (badgeLineHeight)
+    // before the rows. The header and caption are reserved at the LEAN line
+    // box — WidgetKit lays text tighter than Font.lineHeight (the same visible
+    // slack the small widget's badge line lives in) — so the rows pick up the
+    // space that actually shows instead of leaving it empty.
     const header = headerHeight(config, leanLineHeight);
     return height - PADDING_Y - header - REVIEW_GAP
-      - leanLineHeight(config.caption) - deletePendingBadgeHeight(data, config);
+      - leanLineHeight(config.caption) - badgeLineHeight(data, config);
   }
   if (config.layout === "accessoryRectangular") {
     // rectangular accessory: leftover line + caption above the list, with tight
     // lock-screen margins (ACC_PAD_TOP / ACC_PAD_BOTTOM / ACC_HEADER_GAP) plus
     // ACC_SLACK so the last row never touches the widget's bottom edge. The
-    // leftover line's height is whichever of its caption/amount is taller; a
-    // Delete Pending badge reserves its own line (deletePendingBadgeHeight)
+    // leftover line's height is whichever of its caption/amount is taller; the
+    // top-of-list line reserves its own line (badgeLineHeight)
     // above the caption, exactly as in the review budget.
     const leftoverLine = Math.max(monoLineHeight(config.amount), lineHeight(config.caption));
     return height - pad(config, "padTop", ACC_PAD_TOP) - pad(config, "padBottom", ACC_PAD_BOTTOM)
       - leftoverLine - ACC_HEADER_GAP - lineHeight(config.caption)
-      - deletePendingBadgeHeight(data, config) - ACC_SLACK;
+      - badgeLineHeight(data, config) - ACC_SLACK;
   }
   if (config.layout === "overview") {
     const metricRowH = lineHeight(config.caption) + STACK_SPACING + monoLineHeight(config.amount);
     return height - PADDING_Y - headerHeight(config) - OVERVIEW_GAP - metricRowH
-      - LIST_BODY_GAP - lineHeight(config.caption) - deletePendingBadgeHeight(data, config);
+      - LIST_BODY_GAP - lineHeight(config.caption) - badgeLineHeight(data, config);
   }
   return 0;
 }

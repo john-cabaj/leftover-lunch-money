@@ -4,6 +4,31 @@ All notable changes to this widget. Releases follow the repo's `refs/tags/vN`
 tags; commit messages use conventional prefixes (`fix:`, `feat:`, `refactor:`,
 `style:`, `docs:`).
 
+## v13 — 2026-10-21
+
+- `fix`: the update check now reads the repo's git TAGS instead of the GitHub
+  releases API. This project ships each version as a `refs/tags/vN` tag and
+  publishes no Release objects, so `/releases/latest` returned 404 on every
+  check: the "Update Available!" line never appeared, and the failed check was
+  retried (never throttled) on every run. The check reads `/tags` instead, picks
+  the highest-numbered `vN` tag rather than the first entry, and only offers a
+  tag that is strictly newer than `SCRIPT_VERSION` (`tagVersion`, `newestTag`,
+  `isNewerVersion`).
+- `fix`: the notice is raised only for a release newer than the running script.
+  The check record (and the tag it carries) is cached on disk for a day, so a
+  record written before an upgrade could otherwise nag about a version the user
+  already has; `hasUpdate` now compares the cached tag against `SCRIPT_VERSION`.
+- `fix`: when the new script can't be downloaded, the update tap opens the
+  tag's own page (`…/tree/vN`) instead of the Release page (`…/releases/tag/vN`),
+  which does not exist for this repo.
+- `refactor`: the shared top-of-list line is named for what it carries
+  (`addBadgeLine`, `badgeLineHeight`, `BADGE_RESERVE_LAYOUTS`), the
+  single-target layouts are one named constant (`BUDGET_ONLY_LAYOUTS`), and
+  `MAX_SIGNED_MONEY` derives from the money formatter instead of repeating a
+  literal.
+- `docs`: `SCRIPT_VERSION` bumped to v13; README install links point at the v13
+  tag.
+
 ## v12 — 2026-10-20
 
 - `fix`: the medium review list's Menlo transaction rows now take the

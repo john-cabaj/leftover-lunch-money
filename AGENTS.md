@@ -33,12 +33,23 @@ Period resolution rules — `/budgets/settings` (anchor, quantity, granularity, 
 
 Budget-based, not spend-based: `leftover = inflow − outflow`. The authoritative calculation rules (per-category inflow, outflow contributions, uncategorized buckets, group mutual exclusion) live in the `leftover-math` skill — load it before touching `computeLeftover`, `incomeInflow`, or any inflow/outflow code.
 
+## Data Layer and Cache
+
+Request, cache, and storage rules — a non-2xx or malformed response is a *failed* fetch (never cached as data), the stale-copy fallback, the side-list carry-forward (a failed pull keeps the previous value and its original timestamp), the per-period cache files, and the storage sweep — live in the `data-layer` skill; load it before touching `sendLunchMoneyRequest`, `lunchMoneyLeftoverInfo`, `getAllData`, `readCache`, `writeCache`, `sweepWidgetStorage`, `carryForwardSideList`, or the Mock API's behavior.
+
 ## Tap Navigation
 
 Tap routing rules — `resolveTap()`, `tappedTarget()`, `presentWebPage()`, the per-region targets, and the lock-screen accessory fallback — live in the `tap-navigation` skill; load it before touching `appDeepLink`, `resolveTap`, `cameFromTap`, `fallbackTapUrl`, `transactionPageUrl`, `budgetTapUrl`, `deletePendingTapUrl`, or `widget.url`. Two invariants hold no matter what:
 
 - Taps never leave Scriptable: a tap's only job is to show one page, after which the script ends; only a presented tap page calls `App.close()`, and only after the user dismisses it. The boot path (API key, widget render, `setWidget`) runs only for non-tap runs.
 - A small widget opens whatever `widget.url` holds no matter where it is tapped (Scriptable only honors element urls in medium and large widgets), so the small stacked widget's single tap target is Budget.
+
+## Update Check
+
+Update-notice rules — the widget learns about new releases from the repo's git TAGS (this project publishes no GitHub Release objects), the once-a-day throttle and its on-disk record, the version comparison, the `?update=` deep link, and the download-and-copy path — live in the `update-check` skill; load it before touching `fetchUpdateInfo`, `hasUpdate`, `copyUpdateToClipboard`, `SCRIPT_VERSION`, `UPDATE_CHECK_KEY`, `newestTag`, or `isNewerVersion`. Two rules hold no matter what:
+
+- `SCRIPT_VERSION` must equal the release tag of the running script; a tag that is not strictly newer than it never raises a notice
+- The pushed tag is the only thing the widget can see — a local tag reaches nobody until it is pushed (the repo never pushes; that handoff is explicit)
 
 ## Layout Conventions
 
@@ -58,8 +69,24 @@ Layout and sizing rules — `FAMILY_LAYOUTS`, padding/gaps, title centering, Del
 - Verify with `node --check index.js` and the pure-logic test suite `node --test test/*.test.js` (run both together before committing; the pre-commit hook does this automatically). There is no linter.
 - The widget file cannot be required directly because it evaluates Scriptable globals (e.g. `new Font`) at load. `test/pure-core.test.js` extracts the pure functions from `index.js` by marker (`buildQueryString`, `indexCategories` … `sumBreakdownFields`, `formatMoney` … `periodLabelFor`, `periodPathParts` … `transactionsTapUrl`) and evaluates them in a VM context — keep those function signatures and their boundary comments intact. It also slices the widget-LAYOUT fit math and runs it headlessly per known iPhone; the fit-spec reference (regions, stubs, pinned matrices, recalibration workflow) lives in the `widget-layout` skill's Verification section. It contains a golden URL, period-math, leftover-invariant, and layout-fit spec; when you change pure logic or layout constants, extend the suite and run it.
 - `index.js` opens with a SECTION INDEX banner; keep it in sync when regions move.
+- The pure-logic suite's mechanics — the marker-based extraction, the VM sandbox, the golden values, and how to add a case — live in the `testing` skill; load it before changing `test/pure-core.test.js`. The suite covers pure logic only: the boot path (Scriptable globals, the API, the cache, rendering) needs a stub harness or an on-device run.
 - Commit hooks live in `.githooks/` and are also installed in `.git/hooks/` (pre-commit: `node --check` + tests + a check that every release tag has a matching CHANGELOG.md entry; commit-msg: conventional prefixes). Re-copy them when re-cloning. A manually-created release tag without a changelog entry blocks the next commit until the entry is added.
 - Mock API behavior (https://mock.lunchmoney.dev/v2): `/categories` is stable across calls, but `/summary` returns varying data on every request and requires `start_date`/`end_date` (400 otherwise). Verify with relative invariants, not fixed expected numbers — the leftover-specific invariants are in the `leftover-math` skill.
+
+## Tools
+
+`tools/` holds the runnable checks the skills refer to. They need no dependencies beyond Node and never touch a real user API key.
+
+| Tool | What it does |
+|---|---|
+| `node tools/release-scope.mjs` | maps the changes since the last release tag to the areas (and skills) a finalize-release pass must cover; `--json` for machine output, `--tag vN` for a different boundary |
+| `node tools/boot-harness.mjs` | boots the real `index.js` against Scriptable stubs: every widget family × current/previous × pending/clean renders, the tap branches, and the key-less setup state |
+| `node tools/verify-mock.mjs` | runs the leftover math against the Mock API's relative invariants |
+| `node tools/check-update.mjs` | the live update check: the newest published tag, the notice for each installed version, and whether that tag's raw URL exists |
+| `node tools/check-release.mjs` | release hygiene: `SCRIPT_VERSION`, the README install link, the CHANGELOG entries, and whether the tag is on the remote (`--tag vN` checks a candidate release) |
+
+- `tools/release-scope.areas.json` is the single source of truth for the area map — every top-level symbol in `index.js` and the area that owns it. `test/repo-consistency.test.js` guards it: a symbol that appears in or disappears from `index.js` without the map following fails the suite.
+- The Mock API rate-limits bursts (~100 requests/minute), so the harness caches identical requests and retries a 429 with a backoff.
 
 ## Git Workflow
 
@@ -71,5 +98,5 @@ Layout and sizing rules — `FAMILY_LAYOUTS`, padding/gaps, title centering, Del
 When the user asks to finalize, cut, or release a version (`vN`) — or names the `finalize-release` skill — you MUST run the full workflow before creating or moving any `vN` tag. This is not optional and must never be reduced to editing `CHANGELOG.md` and tagging.
 
 - Load the skill first. Repo skills live in `.opencode/skills/`; if the `skill` tool does not list `finalize-release` (opencode only auto-discovers skills at the project root, not in this nested repo), read `.opencode/skills/finalize-release/SKILL.md` directly with the Read tool and follow it verbatim.
-- Complete all five steps (simplify, cross-check, comment cleanup, verify, changelog) plus "Establish the baseline". Load the relevant domain skill (`budget-periods`, `leftover-math`, `tap-navigation`, `widget-layout`) before touching code in its area.
-- Only after the full pass: commit, then create/move the `vN` tag, and confirm `CHANGELOG.md` has the matching `## vN` entry (the pre-commit hook enforces the entry).
+- Complete all five steps (simplify, cross-check, comment cleanup, verify, changelog) plus "Establish the baseline". The pass is SCOPED to the areas changed since the last release tag — the skill's Step 0 derives that scope from the diff and names the areas; run `node tools/release-scope.mjs` to get that scope instead of eyeballing the diff. A release that changes one area reviews only that area, and only that area's domain skill is loaded. If the pass reaches into another area, load that area's skill then. Step 5 (the changelog) and the baseline stay global, because they describe the release as a whole.
+- Only after the full pass: commit, then create/move the `vN` tag, and confirm `CHANGELOG.md` has the matching `## vN` entry (the pre-commit hook enforces the entry). `node tools/check-release.mjs --tag vN` checks the release's hygiene before the tag is created.

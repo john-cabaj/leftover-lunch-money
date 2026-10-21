@@ -1,0 +1,375 @@
+{
+  "$comment": "Single source of truth for the release scope: every top-level symbol in index.js belongs to exactly one area (shared owners are listed in both). tools/release-scope.mjs maps diff hunks to areas through this file; test/repo-consistency.test.js guards it against drift.",
+  "regions": {
+    "CONFIGURATION": "widget-layout",
+    "SETUP": "tap-navigation",
+    "WIDGET": "widget-layout",
+    "UI HELPERS": "widget-layout",
+    "DATA LAYER": "data-layer",
+    "LEFTOVER CALCULATION": "leftover-math",
+    "UTILITIES": "budget-periods",
+    "STORAGE": "data-layer",
+    "WIDGET LAYOUTS": "widget-layout",
+    "UI PRIMITIVES": "widget-layout"
+  },
+  "testBlocks": {
+    "formatMoney": [
+      "leftover-math",
+      "widget-layout"
+    ],
+    "computeLeftover": [
+      "leftover-math"
+    ],
+    "carryForwardSideList": [
+      "data-layer"
+    ],
+    "sideListUpdatedAt": [
+      "data-layer"
+    ],
+    "per-category income max": [
+      "leftover-math"
+    ],
+    "group / child mutual exclusion": [
+      "leftover-math"
+    ],
+    "addBudgetPeriod": [
+      "budget-periods"
+    ],
+    "getBudgetPeriodForDate": [
+      "budget-periods"
+    ],
+    "periodLabelFor": [
+      "budget-periods"
+    ],
+    "reconcilePeriodRange": [
+      "budget-periods"
+    ],
+    "periodIsFullMonth": [
+      "budget-periods"
+    ],
+    "tap URL builders": [
+      "tap-navigation"
+    ],
+    "update tag logic": [
+      "update-check"
+    ],
+    "widget layout": [
+      "widget-layout"
+    ]
+  },
+  "tools": {
+    "release-scope.mjs": [],
+    "release-scope.areas.json": [],
+    "boot-harness.mjs": [
+      "widget-layout",
+      "tap-navigation",
+      "update-check",
+      "testing"
+    ],
+    "verify-mock.mjs": [
+      "leftover-math",
+      "data-layer"
+    ],
+    "check-update.mjs": [
+      "update-check"
+    ],
+    "check-release.mjs": []
+  },
+  "areas": [
+    {
+      "area": "Leftover math",
+      "skill": "leftover-math",
+      "owners": [
+        "budgetGrouping",
+        "categoryInfo",
+        "categoryRows",
+        "computeLeftover",
+        "countedEntries",
+        "formatMoney",
+        "incomeInflow",
+        "indexCategories",
+        "OUTFLOW_FIELDS",
+        "shapeBudgetRow",
+        "shouldCountEntry",
+        "sumBreakdownFields"
+      ],
+      "verify": [
+        "node tools/verify-mock.mjs",
+        "node --test --test-name-pattern='computeLeftover|income max|mutual exclusion' test/*.test.js"
+      ]
+    },
+    {
+      "area": "Period math",
+      "skill": "budget-periods",
+      "owners": [
+        "addBudgetPeriod",
+        "addMonthsClamped",
+        "budgetPeriodLabel",
+        "formatDateString",
+        "getBudgetPeriodForDate",
+        "getCalendarMonthRange",
+        "getCurrentBudgetPeriod",
+        "getPeriodRange",
+        "getPreviousBudgetPeriod",
+        "lastDayOfMonth",
+        "MONTHS",
+        "mostOverlappingOccurrence",
+        "parseIsoDate",
+        "periodIsFullMonth",
+        "periodLabelFor",
+        "reconcilePeriodRange",
+        "summaryOccurrences"
+      ],
+      "verify": [
+        "node --test --test-name-pattern='addBudgetPeriod|getBudgetPeriodForDate|periodLabelFor|reconcilePeriodRange|periodIsFullMonth' test/*.test.js"
+      ]
+    },
+    {
+      "area": "Layout & render",
+      "skill": "widget-layout",
+      "owners": [
+        "ACC_HEADER_GAP",
+        "ACC_PAD_BOTTOM",
+        "ACC_PAD_SIDE",
+        "ACC_PAD_TOP",
+        "ACC_SLACK",
+        "ACCESSORY_SIZE",
+        "ACCESSORY_SPECS",
+        "accessorySize",
+        "addAccessoryCircular",
+        "addAccessoryInline",
+        "addAccessoryRectangular",
+        "addAmount",
+        "addBadgeLine",
+        "addBrandTitle",
+        "addBrandTitleText",
+        "addBreakdown",
+        "addBreakdownSection",
+        "addCaption",
+        "addCenteredText",
+        "addDetailRow",
+        "addErrorState",
+        "addHeader",
+        "addMetricColumn",
+        "addMetricRow",
+        "addMetrics",
+        "addOverview",
+        "addReviewSplit",
+        "addStackedMetrics",
+        "addTextRow",
+        "addTimestamp",
+        "addTransactionRow",
+        "addUnreviewedEmpty",
+        "addUnreviewedItems",
+        "addUnreviewedSection",
+        "AVENIR_LINE_HEIGHT_FALLBACK",
+        "BADGE_PENDING_LABEL",
+        "BADGE_RESERVE_LAYOUTS",
+        "BADGE_UPDATE_LABEL",
+        "badgeLineHeight",
+        "boldFont",
+        "BRAND_GREEN",
+        "BRAND_YELLOW",
+        "brandGreen",
+        "brandYellow",
+        "BUDGET_ONLY_LAYOUTS",
+        "charWidth",
+        "clip",
+        "COLORS",
+        "detailFontSize",
+        "expenseRed",
+        "FAMILY_LAYOUTS",
+        "font",
+        "FONT_BOLD",
+        "FONT_NAME",
+        "getLinearGradient",
+        "getMetric",
+        "getWidget",
+        "hasBadgeLine",
+        "hasDeletePending",
+        "hasUpdate",
+        "headerBlockGap",
+        "headerBlockHeight",
+        "headerHeight",
+        "incomeGreen",
+        "INLINE_GAP",
+        "LAYOUT_RENDERERS",
+        "LEAN_LINE_FACTOR",
+        "leanLineHeight",
+        "LEFTOVER_LABEL",
+        "LINE_HEIGHT_FACTOR",
+        "lineHeight",
+        "LIST_BODY_GAP",
+        "LIST_BOTTOM_SLACK",
+        "LIST_COLUMN_WIDTH",
+        "LIST_WEIGHT",
+        "listHeightBudget",
+        "listWidth",
+        "LOSS_RED",
+        "lossRed",
+        "MAX_MONEY",
+        "MAX_SIGNED_MONEY",
+        "maxUnreviewedCount",
+        "measureLineHeight",
+        "MENLO_LEFT_INSET",
+        "menloInsetLayout",
+        "METRIC_LIST_GAP",
+        "metricColumnWidth",
+        "METRICS",
+        "METRICS_WEIGHT",
+        "MONO_FONT_BOLD",
+        "MONO_FONT_NAME",
+        "MONO_GLYPH_WIDTH",
+        "monoBoldFont",
+        "monoFont",
+        "monoLineHeight",
+        "monoRegularLineHeight",
+        "OVERVIEW_GAP",
+        "OVERVIEW_METRIC_ORDER",
+        "pad",
+        "PADDING_Y",
+        "payeeMax",
+        "PERIOD_SIZE",
+        "regularColor",
+        "renderWidget",
+        "REVIEW_GAP",
+        "ROW_GAP",
+        "rowFitHeight",
+        "SMALL_CAPTION",
+        "smallAmountFont",
+        "smallDetailSize",
+        "smallFont",
+        "smallLayout",
+        "STACK_SPACING",
+        "STALE_ROW_OPACITY",
+        "textWidth",
+        "timestampFont",
+        "TITLE_SIZE",
+        "TITLE_TIME_GAP",
+        "TOP_PAD",
+        "unreviewedFont",
+        "UPDATE_GREEN",
+        "updateGreen",
+        "WIDGET_HEIGHTS",
+        "WIDGET_INNER_WIDTH",
+        "WIDGET_SIZE",
+        "widgetSizes",
+        "withHeaderAndSpacer"
+      ],
+      "verify": [
+        "node tools/boot-harness.mjs",
+        "node --test --test-name-pattern='widget layout' test/*.test.js"
+      ]
+    },
+    {
+      "area": "Tap routing & URLs",
+      "skill": "tap-navigation",
+      "owners": [
+        "appDeepLink",
+        "budgetTapUrl",
+        "cameFromTap",
+        "copyUpdateToClipboard",
+        "deletePendingTapUrl",
+        "fallbackTapUrl",
+        "hasLaunchArguments",
+        "isHttpUrl",
+        "launchFallbackText",
+        "nextTick",
+        "periodPathParts",
+        "presentWebPage",
+        "resolveTap",
+        "SHOW_PREVIOUS_PERIOD",
+        "tapAction",
+        "tappedTarget",
+        "tappedUpdateTag",
+        "tapShowsPreviousPeriod",
+        "transactionPageUrl",
+        "transactionsTapUrl",
+        "unreviewedTapUrl",
+        "updateTapUrl",
+        "WEB_APP_URL",
+        "WIDGET_PARAMETER"
+      ],
+      "verify": [
+        "node tools/boot-harness.mjs",
+        "node --test --test-name-pattern='tap URL builders' test/*.test.js"
+      ]
+    },
+    {
+      "area": "Update check",
+      "skill": "update-check",
+      "owners": [
+        "copyUpdateToClipboard",
+        "fetchUpdateInfo",
+        "formatUpdateTime",
+        "hasUpdate",
+        "isNewerVersion",
+        "newestTag",
+        "readUpdateCheck",
+        "SCRIPT_VERSION",
+        "tagVersion",
+        "UPDATE_CHECK_KEY",
+        "UPDATE_CHECK_MS",
+        "UPDATE_REPO",
+        "updateCheckPath",
+        "updateTapUrl",
+        "writeUpdateCheck"
+      ],
+      "verify": [
+        "node tools/check-update.mjs",
+        "node tools/boot-harness.mjs",
+        "node --test --test-name-pattern='update tag logic' test/*.test.js"
+      ]
+    },
+    {
+      "area": "Data layer & storage",
+      "skill": "data-layer",
+      "owners": [
+        "API_KEY",
+        "BASE_FILE",
+        "BASE_URL",
+        "buildQueryString",
+        "CACHE_FILE_NAMES",
+        "CACHE_KEY",
+        "CACHED_MS",
+        "cacheModTime",
+        "cachePath",
+        "carryForwardSideList",
+        "CURRENT_CACHE_KEY",
+        "ensureWidgetFolder",
+        "fetchDeletePendingTransactions",
+        "fetchTransactions",
+        "fetchUnreviewedTransactions",
+        "getAllData",
+        "getApiKey",
+        "hasDeletePending",
+        "lunchMoneyLeftoverInfo",
+        "periodParams",
+        "PREVIOUS_CACHE_KEY",
+        "readCache",
+        "REQUEST_TIMEOUT",
+        "sendLunchMoneyRequest",
+        "sideListUpdatedAt",
+        "stampCacheTime",
+        "summaryParams",
+        "sweepWidgetStorage",
+        "UNREVIEWED_STATUSES",
+        "widgetFolder",
+        "writeCache"
+      ],
+      "verify": [
+        "node tools/verify-mock.mjs",
+        "node --test --test-name-pattern='carryForwardSideList|sideListUpdatedAt' test/*.test.js"
+      ]
+    },
+    {
+      "area": "Tests & harness",
+      "skill": "testing",
+      "owners": [],
+      "verify": [
+        "node --check index.js",
+        "node --test test/*.test.js"
+      ]
+    }
+  ]
+}

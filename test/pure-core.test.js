@@ -75,6 +75,7 @@ function buildContext(screen) {
     MONO_GLYPH_WIDTH: OBJ(0.6),
     WEB_APP_URL: OBJ('https://my.lunchmoney.app'),
     SHOW_PREVIOUS_PERIOD: OBJ(false),
+    SCRIPT_VERSION: OBJ(srcConst('SCRIPT_VERSION')),
     Script: OBJ({ name: () => 'index' }),
     MAX_MONEY: OBJ(MAX_MONEY),
     FONT_NAME: OBJ(srcConst('FONT_NAME')),
@@ -123,6 +124,9 @@ function loadPureLogic() {
     shouldCountEntry: context.shouldCountEntry,
     carryForwardSideList: context.carryForwardSideList,
     sideListUpdatedAt: context.sideListUpdatedAt,
+    tagVersion: context.tagVersion,
+    newestTag: context.newestTag,
+    isNewerVersion: context.isNewerVersion,
   };
 }
 
@@ -571,6 +575,45 @@ describe('tap URL builders (golden)', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Update notice — version/tag logic
+//
+// The repo ships each version as a git tag (refs/tags/vN) and publishes NO
+// GitHub Release objects, so the update check reads the tag list. These tests
+// pin the two decisions that made the notice fire or not: WHICH tag counts as
+// the newest (the API's list order is not a version order) and whether it is
+// actually newer than the running script.
+// ---------------------------------------------------------------------------
+
+describe('update tag logic (git tags, not GitHub Releases)', () => {
+  test('tagVersion: "v12" is 12, anything that is not a version tag is -1', () => {
+    assert.equal(pure.tagVersion('v12'), 12);
+    assert.equal(pure.tagVersion('v9'), 9);
+    assert.equal(pure.tagVersion('nightly'), -1);
+    assert.equal(pure.tagVersion('v12.1'), -1);
+    assert.equal(pure.tagVersion(''), -1);
+    assert.equal(pure.tagVersion(undefined), -1);
+  });
+
+  test('newestTag: the highest VERSION wins, not the first in the list', () => {
+    assert.equal(pure.newestTag([{ name: 'v12' }, { name: 'v11' }, { name: 'v10' }]), 'v12');
+    // A list ordered lexicographically puts v9 after v10 — the version number
+    // still has to win.
+    assert.equal(pure.newestTag([{ name: 'v10' }, { name: 'v9' }, { name: 'v11' }]), 'v11');
+    assert.equal(pure.newestTag([{ name: 'v12' }, { name: 'nightly' }]), 'v12');
+    assert.equal(pure.newestTag([]), '');
+    assert.equal(pure.newestTag(null), '');
+  });
+
+  test('isNewerVersion: only a strictly higher version counts as an update', () => {
+    assert.equal(pure.isNewerVersion('v12', 'v11'), true);
+    assert.equal(pure.isNewerVersion('v12', 'v12'), false);
+    assert.equal(pure.isNewerVersion('v11', 'v12'), false);
+    assert.equal(pure.isNewerVersion('', 'v11'), false);
+    assert.equal(pure.isNewerVersion('nightly', 'v11'), false);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Widget layout — deterministic fit spec
 //
 // Runs the REAL layout/fit code (FAMILY_LAYOUTS, widgetSizes, the line-height
@@ -590,7 +633,7 @@ describe('tap URL builders (golden)', () => {
 const LAYOUT_FNS = [
   'lineHeight', 'monoLineHeight', 'monoRegularLineHeight', 'leanLineHeight',
   'rowFitHeight', 'listHeightBudget', 'maxUnreviewedCount',
-  'deletePendingBadgeHeight', 'hasDeletePending', 'hasBadgeLine', 'hasUpdate', 'smallAmountFont', 'textWidth'
+  'badgeLineHeight', 'hasDeletePending', 'hasBadgeLine', 'hasUpdate', 'smallAmountFont', 'textWidth'
 ];
 const LAYOUT_CONSTS = ['WIDGET_SIZE', 'ACCESSORY_SIZE', 'WIDGET_INNER_WIDTH', 'LIST_COLUMN_WIDTH', 'WIDGET_HEIGHTS', 'FAMILY_LAYOUTS'];
 
@@ -634,8 +677,13 @@ const RICH = {
 };
 const RICH_BADGE = { ...RICH, deletePendingCount: 3 };
 // An update-only record (no pending deletes) shares the same top-of-list line,
-// so it must reserve the same badge height as the pending case.
-const RICH_UPDATE = { ...RICH, deletePendingCount: 0, updateTag: 'v11' };
+// so it must reserve the same badge height as the pending case. The tag is a
+// deliberately FUTURE version: the update line only shows for a release
+// strictly newer than the running script (SCRIPT_VERSION).
+const RICH_UPDATE = { ...RICH, deletePendingCount: 0, updateTag: 'v999' };
+// The same update tag as the running script — what a cache written before an
+// upgrade still carries. It must NOT raise an update notice.
+const RICH_SAME_VERSION = { ...RICH, deletePendingCount: 0, updateTag: srcConst('SCRIPT_VERSION') };
 const LIST_FAMILY = ['medium', 'large', 'accessoryRectangular'];
 const LIST_LAYOUT = { medium: 'review', large: 'overview', accessoryRectangular: 'accessoryRectangular' };
 
@@ -679,8 +727,8 @@ describe('widget layout (deterministic fit math)', () => {
       for (const family of LIST_FAMILY) {
         const cfg = L.FAMILY_LAYOUTS[family];
         assert.equal(L.listHeightBudget(RICH, cfg), group.budget[family], `${height} ${family}`);
-        assert.equal(L.deletePendingBadgeHeight(RICH, cfg), 0, `${height} ${family} no badge`);
-        assert.equal(L.deletePendingBadgeHeight(RICH_BADGE, cfg), BADGE_RESERVE[family], `${height} ${family} reserve`);
+        assert.equal(L.badgeLineHeight(RICH, cfg), 0, `${height} ${family} no badge`);
+        assert.equal(L.badgeLineHeight(RICH_BADGE, cfg), BADGE_RESERVE[family], `${height} ${family} reserve`);
         assert.equal(L.listHeightBudget(RICH_BADGE, cfg), group.budget[family] - BADGE_RESERVE[family], `${height} ${family} badge budget`);
       }
     }
@@ -719,7 +767,7 @@ describe('widget layout (deterministic fit math)', () => {
       const { L } = layoutAt(height);
       for (const [family, config] of Object.entries(L.FAMILY_LAYOUTS)) {
         const expected = LIST_LAYOUT[family] === config.layout ? BADGE_RESERVE[family] : 0;
-        assert.equal(L.deletePendingBadgeHeight(RICH_BADGE, config), expected, `${height} ${family} (${config.layout})`);
+        assert.equal(L.badgeLineHeight(RICH_BADGE, config), expected, `${height} ${family} (${config.layout})`);
       }
     }
     const { L } = layoutAt(844);
@@ -727,6 +775,9 @@ describe('widget layout (deterministic fit math)', () => {
     assert.equal(L.hasDeletePending(RICH), false);
     assert.equal(L.hasUpdate(RICH_UPDATE), true);
     assert.equal(L.hasUpdate(RICH), false);
+    // A tag that is not newer than the running script never raises a notice —
+    // a record cached before an upgrade still carries the old tag.
+    assert.equal(L.hasUpdate(RICH_SAME_VERSION), false);
     // pending deletes and an available update share the same line/reserve; an
     // update is only shown when nothing is pending.
     assert.equal(L.hasBadgeLine(RICH_BADGE), true);
@@ -735,8 +786,8 @@ describe('widget layout (deterministic fit math)', () => {
     for (const family of LIST_FAMILY) {
       const cfg = L.FAMILY_LAYOUTS[family];
       assert.equal(
-        L.deletePendingBadgeHeight(RICH_UPDATE, cfg),
-        L.deletePendingBadgeHeight(RICH_BADGE, cfg),
+        L.badgeLineHeight(RICH_UPDATE, cfg),
+        L.badgeLineHeight(RICH_BADGE, cfg),
         `${family} update reserves the same line as pending`
       );
     }
