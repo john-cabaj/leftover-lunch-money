@@ -2,6 +2,21 @@
 
 An iOS widget built with [Scriptable](https://scriptable.app) that shows a reflection of the leftover money from [LunchMoney](https://my.lunchmoney.app) for a given period, along with a list of unreviewed transactions for that same period. "Leftover" is the amount remaining after income and spending for the period.
 
+## Agent Skills
+
+Domain rules live in on-demand skills under `.agents/skills/<name>/SKILL.md` (the open Agent Skills format). Tools that support the standard load them automatically; otherwise read the file before touching the matching code.
+
+| Skill | Read before touching |
+|---|---|
+| `budget-periods` | period/date resolution |
+| `data-layer` | API requests, cache, side-lists |
+| `leftover-math` | `computeLeftover` and inflow/outflow rules |
+| `tap-navigation` | tap and deep-link routing |
+| `update-check` | the new-release notice |
+| `widget-layout` | layout, sizing, row-fit math |
+| `testing` | `test/pure-core.test.js` |
+| `finalize-release` | only when asked to cut a release |
+
 ## Architecture
 
 - Single-file widget: `index.js` — no build process or dependencies; a pure-logic test suite lives in `test/` (see Development Notes)
@@ -97,6 +112,6 @@ Layout and sizing rules — `FAMILY_LAYOUTS`, padding/gaps, title centering, Del
 
 When the user asks to finalize, cut, or release a version (`vN`) — or names the `finalize-release` skill — you MUST run the full workflow before creating or moving any `vN` tag. This is not optional and must never be reduced to editing `CHANGELOG.md` and tagging.
 
-- Load the skill first. Repo skills live in `.opencode/skills/`; if the `skill` tool does not list `finalize-release` (opencode only auto-discovers skills at the project root, not in this nested repo), read `.opencode/skills/finalize-release/SKILL.md` directly with the Read tool and follow it verbatim.
+- Load the `finalize-release` skill first (`.agents/skills/finalize-release/SKILL.md`). If your tool does not auto-load skills from `.agents/skills/`, read that file directly and follow it verbatim. Domain skills live alongside it.
 - Complete all five steps (simplify, cross-check, comment cleanup, verify, changelog) plus "Establish the baseline". The pass is SCOPED to the areas changed since the last release tag — the skill's Step 0 derives that scope from the diff and names the areas; run `node tools/release-scope.mjs` to get that scope instead of eyeballing the diff. A release that changes one area reviews only that area, and only that area's domain skill is loaded. If the pass reaches into another area, load that area's skill then. Step 5 (the changelog) and the baseline stay global, because they describe the release as a whole.
 - Only after the full pass: commit, then create/move the `vN` tag, and confirm `CHANGELOG.md` has the matching `## vN` entry (the pre-commit hook enforces the entry). `node tools/check-release.mjs --tag vN` checks the release's hygiene before the tag is created.

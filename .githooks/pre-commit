@@ -36,7 +36,7 @@ for tag in $(git for-each-ref --format='%(refname:short)' refs/tags); do
 done
 if [ -n "$STALE_TAG" ]; then
   echo "pre-commit: release tag \`$STALE_TAG\` has no CHANGELOG.md entry."
-  echo "Add a \`## $STALE_TAG — YYYY-MM-DD\` heading at the top of the release entries and re-stage (see the finalize-release skill)."
+  echo "Add a \`## $STALE_TAG — YYYY-MM-DD\` heading at the top of the release entries and re-stage (see .agents/skills/finalize-release/SKILL.md)."
   exit 1
 fi
 

@@ -319,7 +319,7 @@ const UPDATE_CHECK_KEY = "lunchMoneyUpdateCheck";
 // the pushed tag; UPDATE_CHECK_MS throttles the check to once a day. The check
 // reads the repo's git TAGS (see fetchUpdateInfo) — this project ships each
 // version as a tag and publishes no GitHub Release objects.
-const SCRIPT_VERSION = "v13";
+const SCRIPT_VERSION = "v14";
 const UPDATE_REPO = "john-cabaj/leftover-lunch-money";
 const UPDATE_CHECK_MS = 86400000; // 24 hours
 

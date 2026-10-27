@@ -7,7 +7,7 @@
 //   node tools/release-scope.mjs --tag v13  # use a different boundary
 //
 // The area map lives in tools/release-scope.areas.json — the single source of
-// truth shared with .opencode/skills/finalize-release/SKILL.md and guarded by
+// truth shared with .agents/skills/finalize-release/SKILL.md and guarded by
 // test/repo-consistency.test.js.
 
 import { execFileSync } from 'node:child_process';
@@ -213,7 +213,7 @@ for (const file of changedFiles.concat(untracked)) {
     continue;
   }
 
-  const skillMatch = file.match(/^\.opencode\/skills\/([^/]+)\/SKILL\.md$/);
+  const skillMatch = file.match(/^\.agents\/skills\/([^/]+)\/SKILL\.md$/);
   if (skillMatch) {
     const skill = skillMatch[1];
     if (skill === 'testing') { addArea(areasBySkill.get('testing'), 'the testing skill changed'); continue; }

@@ -4,6 +4,15 @@ All notable changes to this widget. Releases follow the repo's `refs/tags/vN`
 tags; commit messages use conventional prefixes (`fix:`, `feat:`, `refactor:`,
 `style:`, `docs:`).
 
+## v14 — 2026-10-27
+
+- `docs`: the domain rules now live in tool-neutral `.agents/skills/` and are
+  indexed from `AGENTS.md`; the release tooling (`tools/release-scope.mjs`,
+  the pre-commit hook, and the repo-consistency test) was updated to match.
+  There are no widget behavior changes since v13.
+- `docs`: `SCRIPT_VERSION` bumped to v14; README install links point at the v14
+  tag.
+
 ## v13 — 2026-10-21
 
 - `fix`: the update check now reads the repo's git TAGS instead of the GitHub

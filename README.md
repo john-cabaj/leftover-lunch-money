@@ -33,7 +33,7 @@ Tapping the widget opens the Lunch Money web app in a Scriptable WebView (inside
 
 1. Download [Scriptable](https://scriptable.app)
 2. Add new script
-3. Copy and paste the contents of [index.js](https://raw.githubusercontent.com/john-cabaj/leftover-lunch-money/refs/tags/v13/index.js) and save
+3. Copy and paste the contents of [index.js](https://raw.githubusercontent.com/john-cabaj/leftover-lunch-money/refs/tags/v14/index.js) and save
 4. Tap and hold on the script name, select rename, name the script "Leftover Lunch Money"
 
    NOTE: This is not required for functionality, but describes the script for ease of use.
@@ -50,7 +50,7 @@ Tapping the widget opens the Lunch Money web app in a Scriptable WebView (inside
 12. Once options are set, tap on the home screen (not the widget options) to save the changes
 13. Enjoy!
 
-   NOTE: Be sure to check back for updated versions of [index.js](https://raw.githubusercontent.com/john-cabaj/leftover-lunch-money/refs/tags/v13/index.js)! The widget can also remind you: once a day it
+   NOTE: Be sure to check back for updated versions of [index.js](https://raw.githubusercontent.com/john-cabaj/leftover-lunch-money/refs/tags/v14/index.js)! The widget can also remind you: once a day it
    checks the repo's latest release tag, and when a newer version exists it shows an "Update
    Available!" line at the top of the list. Tapping it copies the new script to
    your clipboard and opens this script in the editor. Just select all, paste,

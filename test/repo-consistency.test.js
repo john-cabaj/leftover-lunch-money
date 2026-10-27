@@ -15,7 +15,7 @@ import { fileURLToPath } from 'node:url';
 const REPO = join(dirname(fileURLToPath(import.meta.url)), '..');
 const INDEX = readFileSync(join(REPO, 'index.js'), 'utf8');
 const MAP = JSON.parse(readFileSync(join(REPO, 'tools/release-scope.areas.json'), 'utf8'));
-const SKILL = readFileSync(join(REPO, '.opencode/skills/finalize-release/SKILL.md'), 'utf8');
+const SKILL = readFileSync(join(REPO, '.agents/skills/finalize-release/SKILL.md'), 'utf8');
 const TEST_FILE = readFileSync(join(REPO, 'test/pure-core.test.js'), 'utf8');
 
 // Every top-level declaration in index.js: functions and SCREAMING_CASE consts.
@@ -63,7 +63,7 @@ test('shared owners are listed in exactly the areas that own them', () => {
 
 test('every area points at a skill that exists', () => {
   for (const area of MAP.areas) {
-    const path = join(REPO, '.opencode/skills', area.skill, 'SKILL.md');
+    const path = join(REPO, '.agents/skills', area.skill, 'SKILL.md');
     assert.ok(existsSync(path), `missing skill file for "${area.area}": ${path}`);
   }
 });
