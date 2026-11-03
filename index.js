@@ -69,7 +69,7 @@ const COLORS = {
 };
 
 // Brand palette. Roles:
-//   BRAND_GREEN — positive figures + the product title
+//   BRAND_GREEN — the product title
 //   BRAND_YELLOW — captions / section labels
 //   LOSS_RED    — a negative leftover / the Delete Pending badge
 //   UPDATE_GREEN — the Update Available badge (LOSS_RED's counterpart: the same
@@ -124,18 +124,21 @@ function formatUpdateTime(timestamp) {
 // --------------------------------------------------------------------------
 // Money metrics. Single table of the three money rows every layout renders;
 // each row knows how to label itself and pull its value from loaded data.
-//   - inflow / outflow stay white (fixed color)
-//   - leftover is sign-colored: green when positive, red when negative
+//   - inflow / outflow stay white (fixed color) at reduced opacity
+//   - leftover is sign-colored: white when positive, red when negative, full opacity
 // Layouts pick their own display ORDER and per-metric sizes; this table only
 // guarantees the same value and style logic everywhere.
 // --------------------------------------------------------------------------
+// Inflow/Outflow are supporting detail, so their figures render dimmed; the
+// leftover amount stays full-strength as the hero number.
+const SECONDARY_METRIC_OPACITY = 0.6;
 // The leftover row's display label, shared by the METRICS table and every
 // place that titles the leftover figure (error state, breakdown, accessories)
 // so the wording can't drift between them.
 const LEFTOVER_LABEL = "Leftover";
 const METRICS = [
-  { id: "inflow",   label: "Inflow",       value: (d) => Math.abs(d.inflow), color: regularColor },
-  { id: "outflow",  label: "Outflow",      value: (d) => d.outflow,          color: regularColor },
+  { id: "inflow",   label: "Inflow",       value: (d) => Math.abs(d.inflow), color: regularColor, opacity: SECONDARY_METRIC_OPACITY },
+  { id: "outflow",  label: "Outflow",      value: (d) => d.outflow,          color: regularColor, opacity: SECONDARY_METRIC_OPACITY },
   { id: "leftover", label: LEFTOVER_LABEL, value: (d) => d.savings,          color: undefined }
 ];
 function getMetric(id) { return METRICS.find((m) => m.id === id); }
@@ -1954,8 +1957,9 @@ function addMetricColumn(parentRow, metric, data, config) {
   col.layoutWeight = 1;
   col.spacing = STACK_SPACING;
   addCaption(col, metric.label, config.caption);
-  // Leftover colors by sign (no color set), other metrics stay white
-  addAmount(col, metric.value(data), { size: config.amount, color: metric.color });
+  // Leftover colors by sign (no color set) at full opacity, other metrics stay
+  // white and dimmed as supporting detail
+  addAmount(col, metric.value(data), { size: config.amount, color: metric.color, opacity: metric.opacity });
 }
 
 // The unreviewed transactions column shared by the medium (review), large
@@ -2085,6 +2089,7 @@ function addMetrics(parent, data, config, opts) {
     addAmount(parent, metric.value(data), {
       size: opts.amountSize,
       color: metric.color,
+      opacity: metric.opacity,
       alignLeft: opts.alignLeft,
       minWidth: columnWidth,
       alignRight: opts.alignRight
@@ -2374,7 +2379,8 @@ function addCaption(parent, text, size, alignLeft, stretch) {
   });
 }
 
-// Bold monetary value; colored by sign unless a color override is given.
+// Bold monetary value; colored by sign (LOSS_RED when negative, neutral white
+// when positive) unless a color override is given.
 // Centered unless alignLeft or alignRight is set. A minWidth (points) reserves
 // fixed room for the row so the column width stays stable across amounts. In
 // the medium layout every amount is left-padded to the same character count,
@@ -2391,12 +2397,13 @@ function addAmount(parent, value, opts = {}) {
     : formatMoney(value);
   const { row, label } = addTextRow(parent, text, {
     font: monoBoldFont(opts.size),
-    color: opts.color || (value < 0 ? lossRed : brandGreen),
+    color: opts.color || (value < 0 ? lossRed : regularColor),
     alignLeft: opts.alignLeft,
     alignRight: opts.alignRight
   });
   label.lineLimit = 1;
   label.minimumScaleFactor = 0.5;
+  if (opts.opacity != null) label.textOpacity = opts.opacity;
   if (opts.minWidth) {
     const extra = opts.minWidth - textWidth(text, opts.size);
     if (extra > 0) row.addSpacer(extra);
@@ -2417,12 +2424,13 @@ function addDetailRow(mainStack, label, value, detailFont) {
   const labelText = row.addText(label);
   labelText.font = font(detailFont);
   labelText.textColor = regularColor;
-  labelText.textOpacity = 0.6;
+  labelText.textOpacity = SECONDARY_METRIC_OPACITY;
   row.addSpacer(INLINE_GAP);
   const valueText = row.addText(formatMoney(value));
   valueText.font = monoFont(detailFont);
   valueText.lineLimit = 1;
   valueText.minimumScaleFactor = 0.5;
   valueText.textColor = regularColor;
+  valueText.textOpacity = SECONDARY_METRIC_OPACITY;
   valueText.rightAlignText();
 }

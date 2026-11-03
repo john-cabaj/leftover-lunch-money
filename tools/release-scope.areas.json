@@ -235,6 +235,7 @@
         "REVIEW_GAP",
         "ROW_GAP",
         "rowFitHeight",
+        "SECONDARY_METRIC_OPACITY",
         "SMALL_CAPTION",
         "smallAmountFont",
         "smallDetailSize",

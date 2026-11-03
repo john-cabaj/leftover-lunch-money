@@ -39,7 +39,7 @@ The medium review list and the row-fit function must stay in lockstep: `addTrans
 
 ## Metrics and width constants
 
-`METRICS` is the single source for the three money rows (label, value closure, sign color); `addMetrics`, `addMetricRow`, and `addBreakdown` all render from it, so layouts only choose row order and one `amount` size. Leftover's color is decided in `addAmount` (green when positive, red when negative).
+`METRICS` is the single source for the three money rows (label, value closure, sign color, opacity); `addMetrics`, `addMetricRow`, and `addBreakdown` all render from it, so layouts only choose row order and one `amount` size. Leftover's color is decided in `addAmount` (white when positive, red when negative).
 
 Inner widths come from `WIDGET_INNER_WIDTH` (container width minus the 10pt side padding). The medium review split uses `METRICS_WEIGHT`/`LIST_WEIGHT` (31/69 — layoutWeight units summing to 100) and `LIST_COLUMN_WIDTH` for the list column.
 
