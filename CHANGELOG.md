@@ -4,6 +4,14 @@ All notable changes to this widget. Releases follow the repo's `refs/tags/vN`
 tags; commit messages use conventional prefixes (`fix:`, `feat:`, `refactor:`,
 `style:`, `docs:`).
 
+## v15 — 2026-11-03
+
+- `style`: the Leftover figure is now the visual focal point. A positive leftover
+  renders in neutral white (a negative one stays red) and the Inflow/Outflow
+  figures are dimmed, so Brand Green is reserved for the LUNCH MONEY title.
+- `docs`: `SCRIPT_VERSION` bumped to v15; README install links point at the v15
+  tag.
+
 ## v14 — 2026-10-27
 
 - `docs`: the domain rules now live in tool-neutral `.agents/skills/` and are

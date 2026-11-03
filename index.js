@@ -126,8 +126,8 @@ function formatUpdateTime(timestamp) {
 // each row knows how to label itself and pull its value from loaded data.
 //   - inflow / outflow stay white (fixed color) at reduced opacity
 //   - leftover is sign-colored: white when positive, red when negative, full opacity
-// Layouts pick their own display ORDER and per-metric sizes; this table only
-// guarantees the same value and style logic everywhere.
+// Layouts pick their own display ORDER; this table only guarantees the same
+// value and style logic everywhere.
 // --------------------------------------------------------------------------
 // Inflow/Outflow are supporting detail, so their figures render dimmed; the
 // leftover amount stays full-strength as the hero number.
@@ -322,7 +322,7 @@ const UPDATE_CHECK_KEY = "lunchMoneyUpdateCheck";
 // the pushed tag; UPDATE_CHECK_MS throttles the check to once a day. The check
 // reads the repo's git TAGS (see fetchUpdateInfo) — this project ships each
 // version as a tag and publishes no GitHub Release objects.
-const SCRIPT_VERSION = "v14";
+const SCRIPT_VERSION = "v15";
 const UPDATE_REPO = "john-cabaj/leftover-lunch-money";
 const UPDATE_CHECK_MS = 86400000; // 24 hours
 
