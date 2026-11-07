@@ -34,6 +34,8 @@ const pad = (n) => String(n).padStart(2, '0');
 const fmt = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 const start = fmt(new Date(now.getFullYear(), now.getMonth(), 1));
 const end = fmt(new Date(now.getFullYear(), now.getMonth() + 1, 0));
+const prevStart = fmt(new Date(now.getFullYear(), now.getMonth() - 1, 1));
+const prevEnd = fmt(new Date(now.getFullYear(), now.getMonth(), 0));
 
 const params = {
   start_date: start,
@@ -45,16 +47,17 @@ const params = {
   include_past_budget_dates: 'true'
 };
 
-const [summary, categories, settings] = await Promise.all([
+const [summary, adjacent, categories, settings] = await Promise.all([
   get('/summary', params),
+  get('/summary', { ...params, start_date: prevStart, end_date: prevEnd }),
   get('/categories'),
   get('/budgets/settings').catch(() => ({}))
 ]);
 
-const leftover = ctx.computeLeftover(summary, categories);
+const leftover = ctx.computeLeftover(summary, categories, adjacent);
 if (!leftover) throw new Error('computeLeftover returned null');
 
-const rows = ctx.categoryRows(summary, categories);
+const rows = ctx.categoryRows(summary, categories, adjacent);
 const rowSum = rows.reduce((s, r) => s + r.contribution, 0);
 const uncategorized = ctx.sumBreakdownFields(summary.totals && summary.totals.outflow, ['uncategorized', 'uncategorized_recurring']);
 const outflow = leftover.outflow;
@@ -91,19 +94,24 @@ check('every category row is named and finite',
   rows.every((r) => r.name && Number.isFinite(r.contribution)),
   `${rows.length} rows`);
 
-// Each counted row contributes its budget (plus overspend) when budgeted, and
-// its activity when not — the shape shapeBudgetRow defines.
-const rowContribOk = rows.every((r) => {
+// Rollover rows contribute their budget (plus any overspend); non-rollover
+// rows contribute their activity. Carryover is inferred from the selected and
+// adjacent summaries, matching the shape shapeBudgetRow defines.
+const counted = ctx.countedEntries(summary, categories, false);
+const carriesOver = ctx.carryoverIds(summary, adjacent);
+const rowContribOk = rows.every((r, i) => {
+  const id = counted.entries[i] && counted.entries[i].category_id;
   if (r.initialBudget == null) return near(r.contribution, r.activity);
-  const expected = r.available >= 0 ? r.initialBudget : r.initialBudget - r.available;
+  const expected = carriesOver[id]
+    ? (r.available == null || r.available >= 0 ? r.initialBudget : r.initialBudget - r.available)
+    : r.activity;
   return near(r.contribution, expected);
 });
-check('every row contributes its budget (+overspend) or its activity',
+check('every row contributes rollover budget or non-rollover activity',
   rowContribOk, `${rows.length} rows`);
 
 // Group rows and their budgeted children are mutually exclusive: never both a
 // group and one of its children in the same counted set.
-const counted = ctx.countedEntries(summary, categories, false);
 const countedIds = new Set(counted.entries.map((e) => e.category_id));
 const groupChildOverlap = (() => {
   const info = ctx.indexCategories(categories).info;

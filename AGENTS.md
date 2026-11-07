@@ -46,7 +46,7 @@ Period resolution rules — `/budgets/settings` (anchor, quantity, granularity, 
 
 ## Leftover Calculation
 
-Budget-based, not spend-based: `leftover = inflow − outflow`. The authoritative calculation rules (per-category inflow, outflow contributions, uncategorized buckets, group mutual exclusion) live in the `leftover-math` skill — load it before touching `computeLeftover`, `incomeInflow`, or any inflow/outflow code.
+`leftover = inflow − outflow`. While a period is in progress, budgeted rows contribute their budget (+ overspend). After it ends, rollover rows stay budget-based and non-rollover rows contribute their activity, so only non-rollover underspend returns to the leftover. Rollover is inferred from carryover in the selected and adjacent-period summaries (plus any explicit category metadata). The authoritative calculation rules (per-category inflow, outflow contributions, uncategorized buckets, group mutual exclusion) live in the `leftover-math` skill — load it before touching `computeLeftover`, `incomeInflow`, or any inflow/outflow code.
 
 ## Data Layer and Cache
 

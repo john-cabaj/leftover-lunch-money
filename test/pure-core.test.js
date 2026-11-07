@@ -218,10 +218,15 @@ describe('computeLeftover', () => {
     closeTo(pure.incomeInflow(FIXTURE_SUMMARY, FIXTURE_CATEGORIES), 3351.68);
   });
   test('outflow sums category contributions plus only the uncategorized buckets', () => {
-    closeTo(result.outflow, 1660.58);
+    closeTo(result.outflow, 1090.40);
   });
   test('leftover = inflow − outflow', () => {
-    closeTo(result.savings, 2891.10);
+    closeTo(result.savings, 3461.28);
+  });
+  test('in-progress periods stay budget-based until they end', () => {
+    const inProgress = pure.computeLeftover(FIXTURE_SUMMARY, FIXTURE_CATEGORIES, null, false);
+    closeTo(inProgress.outflow, 1660.58);
+    closeTo(inProgress.savings, 2891.10);
   });
   test('outflow rows + uncategorized buckets = total outflow', () => {
     const rows = pure.categoryRows(FIXTURE_SUMMARY, FIXTURE_CATEGORIES)
@@ -245,7 +250,83 @@ describe('computeLeftover', () => {
   });
   test('exclude_from_budget alone never excludes a category (Charity still counts)', () => {
     const charity = pure.categoryRows(FIXTURE_SUMMARY, FIXTURE_CATEGORIES).find((r) => r.name === 'Charity');
-    closeTo(charity.contribution, 100);
+    closeTo(charity.contribution, 50);
+  });
+  test('under-budget categories contribute activity, leaving underspend in leftover', () => {
+    const rows = pure.categoryRows(FIXTURE_SUMMARY, FIXTURE_CATEGORIES);
+    const insurance = rows.find((r) => r.name === 'Insurance');
+    const subscriptions = rows.find((r) => r.name === 'Subscriptions');
+    closeTo(insurance.contribution, 54.13);
+    closeTo(subscriptions.contribution, 0);
+  });
+  test('only same-category rollover keeps its budget out of leftover', () => {
+    const rowFor = (rolloverOption) => {
+      const categories = {
+        categories: [
+          { id: 1, name: 'Test', is_income: false, exclude_from_totals: false, is_group: false, group_id: null, rollover_option: rolloverOption, children: [] }
+        ]
+      };
+      const summary = {
+        totals: {},
+        categories: [
+          { category_id: 1, totals: { budgeted: 100, other_activity: 40, recurring_activity: 0, available: 60 } }
+        ]
+      };
+      return pure.categoryRows(summary, categories)[0].contribution;
+    };
+    closeTo(rowFor('same category'), 100);
+    closeTo(rowFor('available funds'), 40);
+    closeTo(rowFor(null), 40);
+  });
+  test('adjacent-period carryover marks rollover categories', () => {
+    const categories = {
+      categories: [
+        { id: 1, name: 'Rolling', is_income: false, exclude_from_totals: false, is_group: false, group_id: null, children: [] },
+        { id: 2, name: 'Spent', is_income: false, exclude_from_totals: false, is_group: false, group_id: null, children: [] }
+      ]
+    };
+    const selected = {
+      totals: {},
+      categories: [
+        { category_id: 1, totals: { budgeted: 100, other_activity: 40, recurring_activity: 0, available: 60 } },
+        { category_id: 2, totals: { budgeted: 100, other_activity: 90, recurring_activity: 0, available: 10 } }
+      ]
+    };
+    const adjacent = {
+      totals: {},
+      categories: [
+        { category_id: 1, totals: { budgeted: 100, other_activity: 0, recurring_activity: 0, available: 160 } },
+        { category_id: 2, totals: { budgeted: 100, other_activity: 100, recurring_activity: 0, available: 0 } }
+      ]
+    };
+    const rows = pure.categoryRows(selected, categories, adjacent);
+    closeTo(rows.find((r) => r.name === 'Rolling').contribution, 100);
+    closeTo(rows.find((r) => r.name === 'Spent').contribution, 90);
+    closeTo(pure.computeLeftover(selected, categories, adjacent).savings, -190);
+  });
+  test('next-period carryover overrides a stale selected balance', () => {
+    const categories = {
+      categories: [
+        { id: 1, name: 'Changed', is_income: false, exclude_from_totals: false, is_group: false, group_id: null, children: [] },
+        { id: 2, name: 'Missing', is_income: false, exclude_from_totals: false, is_group: false, group_id: null, children: [] }
+      ]
+    };
+    const selected = {
+      totals: {},
+      categories: [
+        { category_id: 1, totals: { budgeted: 100, other_activity: 0, recurring_activity: 0, available: 160 } },
+        { category_id: 2, totals: { budgeted: 100, other_activity: 0, recurring_activity: 0, available: 160 } }
+      ]
+    };
+    const adjacent = {
+      totals: {},
+      categories: [
+        { category_id: 1, totals: { budgeted: 100, other_activity: 0, recurring_activity: 0, available: 100 } }
+      ]
+    };
+    const rows = pure.categoryRows(selected, categories, adjacent);
+    closeTo(rows.find((r) => r.name === 'Changed').contribution, 0);
+    closeTo(rows.find((r) => r.name === 'Missing').contribution, 100);
   });
   test('returns null when there is no summary to compute from', () => {
     assert.equal(pure.computeLeftover({}, FIXTURE_CATEGORIES), null);
@@ -358,7 +439,7 @@ describe('group / child mutual exclusion', () => {
         { category_id: 11, totals: { budgeted: null, other_activity: 120, recurring_activity: 0, available: null } }
       ]
     };
-    closeTo(pure.computeLeftover(summary, categories).outflow, 500);
+    closeTo(pure.computeLeftover(summary, categories).outflow, 0);
   });
 });
 

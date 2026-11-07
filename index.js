@@ -322,7 +322,7 @@ const UPDATE_CHECK_KEY = "lunchMoneyUpdateCheck";
 // the pushed tag; UPDATE_CHECK_MS throttles the check to once a day. The check
 // reads the repo's git TAGS (see fetchUpdateInfo) — this project ships each
 // version as a tag and publishes no GitHub Release objects.
-const SCRIPT_VERSION = "v15";
+const SCRIPT_VERSION = "v16";
 const UPDATE_REPO = "john-cabaj/leftover-lunch-money";
 const UPDATE_CHECK_MS = 86400000; // 24 hours
 
@@ -1070,7 +1070,28 @@ async function lunchMoneyLeftoverInfo(previous) {
         fetchUnreviewedTransactions(range)
       ]);
     }
-    const leftover = computeLeftover(summary, categories);
+    // Non-rollover underspend returns to leftover only after the period ends.
+    // Detecting rollover then needs the adjacent period: there is no
+    // per-category rollover field in the API, so a balance carried into or out
+    // of this period is how the math tells rollover and non-rollover rows
+    // apart. A failed probe still leaves the selected period's own carryovers
+    // usable; while the period is in progress every row stays budget-based, so
+    // the probe is skipped.
+    const periodEnded = range.end_date < formatDateString(new Date());
+    let adjacentSummary = null;
+    if (periodEnded) {
+      const adjacentTarget = parseIsoDate(SHOW_PREVIOUS_PERIOD ? range.end_date : range.start_date);
+      adjacentTarget.setDate(adjacentTarget.getDate() + (SHOW_PREVIOUS_PERIOD ? 1 : -1));
+      const adjacentSeed = getBudgetPeriodForDate(settings, adjacentTarget)
+        || getCalendarMonthRange(SHOW_PREVIOUS_PERIOD ? 1 : -1);
+      try {
+        adjacentSummary = await sendLunchMoneyRequest('/summary', summaryParams(adjacentSeed, false));
+        if (!adjacentSummary || adjacentSummary.aligned === false) adjacentSummary = null;
+      } catch (e) {
+        adjacentSummary = null;
+      }
+    }
+    const leftover = computeLeftover(summary, categories, adjacentSummary, periodEnded);
     // A 200 with an unexpected shape yields no leftover; treat it as a failed
     // fetch so getAllData falls back to the last good cache instead of caching
     // an empty result with a fresh timestamp.
@@ -1311,7 +1332,8 @@ function indexCategories(categories) {
       isIncome: category.is_income,
       excludeFromTotals: !!category.exclude_from_totals,
       isGroup: !!category.is_group,
-      groupId: category.group_id != null ? category.group_id : null
+      groupId: category.group_id != null ? category.group_id : null,
+      rolloverOption: category.rollover_option != null ? category.rollover_option : null
     };
     names[category.id] = category.name;
     if (Array.isArray(category.children)) category.children.forEach(add);
@@ -1342,21 +1364,75 @@ function budgetGrouping(entries, info) {
   return { groupedBudgeted, groupHasBudgetedChildren };
 }
 
+// A category carries funds forward when its available balance exceeds what
+// this period's budget and activity alone would leave. /categories does not
+// expose per-category rollover settings, so the selected and adjacent-period
+// summaries together reveal which categories keep their unspent budget: the
+// selected summary shows balances carried in, the adjacent one shows balances
+// carried out.
+function carryoverIds(summary, adjacentSummary) {
+  const ids = {};
+  const read = (source) => {
+    const rows = {};
+    if (!source || !Array.isArray(source.categories)) return rows;
+    for (const entry of source.categories) {
+      const totals = entry && entry.totals;
+      if (!totals || totals.budgeted == null || totals.available == null) continue;
+      const activity = (totals.other_activity || 0) + (totals.recurring_activity || 0);
+      rows[entry.category_id] = {
+        carries: totals.available > totals.budgeted - activity + 0.02,
+        hasPositiveBalance: totals.available > 0.02
+      };
+    }
+    return rows;
+  };
+  const selected = read(summary);
+  const adjacent = read(adjacentSummary);
+  const hasAdjacent = Object.keys(adjacent).length > 0;
+
+  // A positive next-period carry proves rollover. A missing next-period carry
+  // proves non-rollover only when the selected period ends positive: zero or
+  // negative balances do not carry forward even for rollover categories, so
+  // their selected-period evidence still wins. The selected balance is also the
+  // fallback for categories the adjacent summary omits.
+  if (hasAdjacent) {
+    for (const [id, state] of Object.entries(adjacent)) {
+      if (state.carries) ids[id] = true;
+    }
+  }
+  for (const [id, state] of Object.entries(selected)) {
+    if (!state.carries) continue;
+    const adjacentSaysNoCarry = hasAdjacent && id in adjacent && !adjacent[id].carries;
+    if (adjacentSaysNoCarry && state.hasPositiveBalance) continue;
+    ids[id] = true;
+  }
+  return ids;
+}
+
 // Shapes one summary entry into a clean budget row { name, initialBudget,
 // activity, available, contribution }. The category name comes from the
 // indexed names map. `available` comes straight from the API — present
 // (possibly null for unbudgeted categories) in aligned responses, absent in
 // non-aligned ones — and is normalized to null so the contribution ternary
-// below never sees undefined. A budgeted category contributes its budget
-// (plus any overspend when available is negative); an unbudgeted one
-// contributes its activity.
-function shapeBudgetRow(entry, names) {
+// below never sees undefined. A budgeted category contributes its activity
+// (so unspent budget stays out of outflow and remains leftover), plus any
+// overspend when available is negative; if availability is missing, fall back
+// to its budget. The exception is a category that rolls over to itself, either
+// through explicit metadata or an observed carryover: its unspent budget is
+// retained for that category, so it keeps the budget-based contribution. An
+// unbudgeted category contributes its activity. Until the period has ended,
+// every budgeted row uses the budget-based contribution: underspend has not
+// been released yet.
+function shapeBudgetRow(entry, names, category = {}, carriesOver = false, addBackUnderspend = true) {
   const initialBudget = entry.totals.budgeted;
   const activity = (entry.totals.other_activity || 0) + (entry.totals.recurring_activity || 0);
   const available = entry.totals.available != null ? entry.totals.available : null;
+  const rollsOver = !addBackUnderspend || carriesOver || category.rolloverOption === 'same category';
   const contribution = initialBudget == null
     ? activity
-    : (available >= 0 ? initialBudget : initialBudget - available);
+    : (rollsOver
+      ? (available == null || available >= 0 ? initialBudget : initialBudget - available)
+      : activity);
   return {
     name: names[entry.category_id] || entry.category_id,
     initialBudget,
@@ -1398,6 +1474,7 @@ function countedEntries(summary, categories, isIncome) {
   const { groupedBudgeted, groupHasBudgetedChildren } = budgetGrouping(entries, info);
 
   return {
+    info,
     names,
     entries: entries
       .filter((entry) => shouldCountEntry(entry, info, groupedBudgeted, groupHasBudgetedChildren))
@@ -1405,10 +1482,19 @@ function countedEntries(summary, categories, isIncome) {
 }
 
 // Expands summary rows into per-category budget/activity data, applying group
-// rules so groups and their children are never both counted
-function categoryRows(summary, categories) {
-  const { entries, names } = countedEntries(summary, categories, false);
-  return entries.map((entry) => shapeBudgetRow(entry, names));
+// rules so groups and their children are never both counted. The optional
+// adjacent-period summary only helps identify categories that carry funds over;
+// `addBackUnderspend` is false while the selected period is still in progress.
+function categoryRows(summary, categories, adjacentSummary, addBackUnderspend = true) {
+  const { info, entries, names } = countedEntries(summary, categories, false);
+  const carriesOver = carryoverIds(summary, adjacentSummary);
+  return entries.map((entry) => shapeBudgetRow(
+    entry,
+    names,
+    categoryInfo(info, entry),
+    !!carriesOver[entry.category_id],
+    addBackUnderspend
+  ));
 }
 
 // The period's income under Lunch Money's "max" budget-income option, applied
@@ -1433,15 +1519,19 @@ function incomeInflow(summary, categories) {
   }, 0);
 }
 
-// Money in this period minus what we're on the hook to spend in it. Inflow is
-// the general pool Lunch Money calls "budgetable": the period's income — the
+// Money in this period minus what was actually spent in it. Inflow is the
+// general pool Lunch Money calls "budgetable": the period's income — the
 // per-category max of expected vs realized (incomeInflow) — plus the rollover
-// pool balance carried into it. Outflow is what every category row commits to
-// spend plus the uncategorized spend that lives outside all rows, so
-// non-budget spending still shrinks the leftover. Returns null when either
-// response lacks the arrays the math depends on, so a malformed 200 falls back
-// to the last good cache instead of caching an empty result.
-function computeLeftover(summary, categories) {
+// pool balance carried into it. Outflow counts rollover categories at their
+// committed budget (plus overspend) and non-rollover categories at their
+// actual activity, plus the uncategorized spend that lives outside all rows:
+// non-rollover underspending stays leftover while carried funds do not, and
+// non-budget spending still shrinks it. An optional adjacent-period summary
+// improves rollover detection, and `addBackUnderspend` is false until the
+// period has ended. Returns null when either response lacks the arrays the math
+// depends on, so a malformed 200 falls back to the last good cache instead of
+// caching an empty result.
+function computeLeftover(summary, categories, adjacentSummary, addBackUnderspend = true) {
   if (!summary || !Array.isArray(summary.categories)) {
     return null;
   }
@@ -1451,7 +1541,8 @@ function computeLeftover(summary, categories) {
 
   const inflow = incomeInflow(summary, categories)
     + ((summary.rollover_pool && summary.rollover_pool.budgeted_to_base) || 0);
-  const outflow = categoryRows(summary, categories).reduce((sum, row) => sum + row.contribution, 0)
+  const outflow = categoryRows(summary, categories, adjacentSummary, addBackUnderspend)
+    .reduce((sum, row) => sum + row.contribution, 0)
     + sumBreakdownFields(summary.totals && summary.totals.outflow, OUTFLOW_FIELDS);
 
   return {
@@ -1712,7 +1803,8 @@ function readCache(allowStale) {
   try {
     const raw = fm.readString(path);
     if (raw && (allowStale || Date.now() - fm.modificationDate(path) <= CACHED_MS)) {
-      return JSON.parse(raw);
+      const data = JSON.parse(raw);
+      if (data && data.scriptVersion === SCRIPT_VERSION) return data;
     }
   } catch (e) {
     // unreadable or corrupt cache: treat as a miss
@@ -1727,6 +1819,7 @@ function writeCache(data) {
   try {
     const fm = FileManager.local();
     ensureWidgetFolder();
+    data.scriptVersion = SCRIPT_VERSION;
     fm.writeString(cachePath(), JSON.stringify(data));
   } catch (e) {
     // ignore: rendering proceeds with the in-memory result
@@ -2218,7 +2311,7 @@ function addUnreviewedEmpty(parent, status, config) {
   const empty = parent.addText(text);
   empty.font = failed ? font(smallDetailSize(config)) : unreviewedFont(config);
   empty.textColor = regularColor;
-  empty.textOpacity = failed ? 0.8 : 0.6;
+  empty.textOpacity = failed ? 0.8 : SECONDARY_METRIC_OPACITY;
   empty.lineLimit = 3;
   empty.minimumScaleFactor = 0.6;
 }

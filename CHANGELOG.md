@@ -4,6 +4,14 @@ All notable changes to this widget. Releases follow the repo's `refs/tags/vN`
 tags; commit messages use conventional prefixes (`fix:`, `feat:`, `refactor:`,
 `style:`, `docs:`).
 
+## v16 — 2026-11-06
+
+- `fix`: non-rollover category underspend returns to leftover only after the period ends; while a period is in progress, budgeted rows stay budget-based.
+- `fix`: rollover is inferred from carryover in the selected and adjacent summaries; a positive adjacent carry proves rollover, while a missing adjacent carry proves non-rollover only when the selected period ends positive (zero/negative balances still use selected-period evidence).
+- `style`: the "No unreviewed transactions" notice now renders at the same opacity as the Inflow/Outflow figures (both use `SECONDARY_METRIC_OPACITY`), so the two share one exact color.
+- `fix`: cache records carry `scriptVersion` (`SCRIPT_VERSION`); a record written by an older script is a miss even inside the TTL, so pasting an updated script takes effect immediately.
+- `docs`: `SCRIPT_VERSION` bumped to v16; README install links point at the v16 tag.
+
 ## v15 — 2026-11-03
 
 - `style`: the Leftover figure is now the visual focal point. A positive leftover

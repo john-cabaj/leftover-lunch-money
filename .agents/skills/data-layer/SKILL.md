@@ -20,8 +20,9 @@ The same rule applies to a 200 with the wrong shape: `lunchMoneyLeftoverInfo` re
 1. `/budgets/settings` → the budget period seed (`getPeriodRange`; the calendar month is the fallback).
 2. In parallel: `/summary` (with `include_occurrences` + `include_past_budget_dates`), `/categories`, the unreviewed `/transactions` pull, the delete-pending `/transactions` pull.
 3. `reconcilePeriodRange` adopts the API's own period boundaries (see the `budget-periods` skill). When the seed missed the real period, the `/summary` is refetched pinned to the corrected range and the unreviewed rows are repulled for it — a misaligned summary omits the budgeted/available fields the leftover math needs.
-4. `computeLeftover` (see the `leftover-math` skill).
-5. Each side list is carried forward on its own.
+4. Only once the selected period has ended, a best-effort adjacent-period `/summary` (next for `previous`, previous for `current`) supplies the carryover evidence used to tell rollover from non-rollover rows. Its failure never fails the main fetch; a non-aligned answer is ignored. In-progress periods skip it and stay budget-based.
+5. `computeLeftover` (see the `leftover-math` skill).
+6. Each side list is carried forward on its own.
 
 ## The two side lists, and their three states
 
@@ -41,7 +42,7 @@ Two details that are easy to get wrong:
 ## The cache
 
 - Two files, one per period (`lunchMoneyCache`, `lunchMoneyCache_previous`), so a "previous" run never serves the current period's data. The update-check record is a **third** file, deliberately outside them (it is not period data) — see the `update-check` skill.
-- Freshness is `CACHED_MS` (10 minutes), gated on the cache file's modification time. `readCache()` returns a fresh record; `readCache(true)` also returns a stale one — that is the offline fallback and the source a failed side-list pull carries forward from.
+- Freshness is `CACHED_MS` (10 minutes), gated on the cache file's modification time. Records also carry `scriptVersion` (`SCRIPT_VERSION`); a record written by an older script is a miss even inside the TTL, so pasting an updated script takes effect immediately. `readCache()` returns a fresh record; `readCache(true)` also returns a stale one — that is the offline fallback and the source a failed side-list pull carries forward from.
 - `getAllData` is the whole fallback chain: fresh cache → fetch → stale cache. A cache record written before the `lastUpdated` field existed gets one retroactively from the file's mtime (`stampCacheTime`), so the widget can always show when the data was fetched.
 - Writes are best-effort: a failed write must not discard freshly fetched data, so the widget renders this run and the next run simply re-fetches.
 - `sweepWidgetStorage` is the janitor: it deletes every entry in the widget folder that is not one of the two cache files or the update record, so retired files and OS cruft cannot linger on device. It runs on the boot path, is idempotent, and never touches what it must keep.

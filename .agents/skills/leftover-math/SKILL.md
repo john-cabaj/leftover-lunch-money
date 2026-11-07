@@ -9,7 +9,7 @@ The widget's period leftover is computed in `index.js` by `computeLeftover` and 
 
 ## Core equation
 
-`computeLeftover` is budget-based, not spend-based: `leftover = inflow − outflow`.
+`computeLeftover` is `leftover = inflow − outflow`. Until the period ends, every budgeted row contributes its committed budget (plus overspend), matching the in-progress budget view. Once the period has ended, rollover rows keep that budget-based contribution while non-rollover rows contribute their actual activity, so only non-rollover underspend returns to the leftover. Overspending is still added on top.
 
 ## inflow
 
@@ -21,7 +21,9 @@ Income observes the same group/children mutual exclusion as outflow rows, and ca
 
 `outflow` is every category row's `contribution` plus the summary's `totals.outflow.uncategorized` buckets (the two uncategorized columns summed via `OUTFLOW_FIELDS`).
 
-A budgeted category contributes its budget (budget + overspend when its `available` is negative); an unbudgeted category contributes its activity. Rows and the uncategorized buckets are summed with `sumBreakdownFields`.
+A rollover category keeps the budget-based contribution: its budget normally, or budget plus overspend when `available` is negative. After the period ends, a non-rollover category contributes its activity, so its underspend remains leftover; while the period is in progress it uses the same budget-based contribution as a rollover row. An unbudgeted category also contributes its activity. Rows and the uncategorized buckets are summed with `sumBreakdownFields`.
+
+Rollover is detected by `carryoverIds`: `available` exceeds `budgeted − activity`, meaning funds were carried into the period. For an ended period, a positive carry in the adjacent period's summary (next for `previous`, previous for `current`) proves rollover. A missing carry proves non-rollover only when the selected period ends positive; zero or negative balances do not carry forward even for rollover categories, so selected-period evidence still wins there. The selected summary is also the fallback for categories the adjacent summary omits. Explicit category metadata reporting `rollover_option: "same category"` also marks a row as rollover; `"available funds"` and `null` do not. The adjacent summary is a best-effort probe and may be absent; an in-progress period skips it entirely.
 
 ## Non-budget spending still drains the leftover
 
@@ -48,4 +50,4 @@ Lunch Money's separate recurring-planning section is intentionally not leveraged
 
 ## Pinned as tests
 
-The rules above are already executable: `test/pure-core.test.js` takes the real `computeLeftover` region straight from `index.js` by marker and pins the invariant arithmetic on a hand-built fixture (budgeted, over-budget, unbudgeted, `exclude_from_totals`, `exclude_from_budget`-only, and group/child rows) under `describe('computeLeftover')`, `describe('per-category income max …')`, and `describe('group / child mutual exclusion')`. When you change the math, run `node --test test/*.test.js` and keep those tests green — or update the fixture/assertions deliberately in the same change. The harness slices `index.js` by function-signature markers; keep the boundary comments and signatures intact (they are the slice anchors).
+The rules above are already executable: `test/pure-core.test.js` takes the real `computeLeftover` region straight from `index.js` by marker and pins the invariant arithmetic on a hand-built fixture (budgeted, in-progress budget-based rows, under-budget, over-budget, unbudgeted, rollover and non-rollover rows, `exclude_from_totals`, `exclude_from_budget`-only, group/child rows, and adjacent-period carryover) under `describe('computeLeftover')`, `describe('per-category income max …')`, and `describe('group / child mutual exclusion')`. When you change the math, run `node --test test/*.test.js` and keep those tests green — or update the fixture/assertions deliberately in the same change. The harness slices `index.js` by function-signature markers; keep the boundary comments and signatures intact (they are the slice anchors).
