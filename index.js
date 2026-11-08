@@ -322,7 +322,7 @@ const UPDATE_CHECK_KEY = "lunchMoneyUpdateCheck";
 // the pushed tag; UPDATE_CHECK_MS throttles the check to once a day. The check
 // reads the repo's git TAGS (see fetchUpdateInfo) — this project ships each
 // version as a tag and publishes no GitHub Release objects.
-const SCRIPT_VERSION = "v16";
+const SCRIPT_VERSION = "v17";
 const UPDATE_REPO = "john-cabaj/leftover-lunch-money";
 const UPDATE_CHECK_MS = 86400000; // 24 hours
 
@@ -1036,6 +1036,25 @@ function summaryParams(range, withOccurrences) {
   };
 }
 
+// Best-effort /summary for the period adjacent to the selected one — the next
+// period for `previous`, the previous period for `current`. There is no
+// per-category rollover field in the API, so the balance a category carries
+// into or out of the selected period is how the math tells rollover from
+// non-rollover rows apart. A failed or non-aligned answer returns null and
+// leaves the selected period's own carryovers as the only evidence.
+async function fetchAdjacentSummary(range, settings) {
+  const target = parseIsoDate(SHOW_PREVIOUS_PERIOD ? range.end_date : range.start_date);
+  target.setDate(target.getDate() + (SHOW_PREVIOUS_PERIOD ? 1 : -1));
+  const seed = getBudgetPeriodForDate(settings, target)
+    || getCalendarMonthRange(SHOW_PREVIOUS_PERIOD ? 1 : -1);
+  try {
+    const summary = await sendLunchMoneyRequest('/summary', summaryParams(seed, false));
+    return summary && summary.aligned !== false ? summary : null;
+  } catch (e) {
+    return null;
+  }
+}
+
 // Fetches the summary + categories for the selected budget period (current or
 // previous, per the widget parameter), computes the leftover, and pulls the
 // latest unreviewed transactions in the same range plus the account-wide
@@ -1070,27 +1089,12 @@ async function lunchMoneyLeftoverInfo(previous) {
         fetchUnreviewedTransactions(range)
       ]);
     }
-    // Non-rollover underspend returns to leftover only after the period ends.
-    // Detecting rollover then needs the adjacent period: there is no
-    // per-category rollover field in the API, so a balance carried into or out
-    // of this period is how the math tells rollover and non-rollover rows
-    // apart. A failed probe still leaves the selected period's own carryovers
-    // usable; while the period is in progress every row stays budget-based, so
-    // the probe is skipped.
+    // Non-rollover underspend returns to leftover only after the period ends;
+    // while the period is in progress every row stays budget-based, so the
+    // adjacent probe is skipped. A failed probe still leaves the selected
+    // period's own carryovers usable.
     const periodEnded = range.end_date < formatDateString(new Date());
-    let adjacentSummary = null;
-    if (periodEnded) {
-      const adjacentTarget = parseIsoDate(SHOW_PREVIOUS_PERIOD ? range.end_date : range.start_date);
-      adjacentTarget.setDate(adjacentTarget.getDate() + (SHOW_PREVIOUS_PERIOD ? 1 : -1));
-      const adjacentSeed = getBudgetPeriodForDate(settings, adjacentTarget)
-        || getCalendarMonthRange(SHOW_PREVIOUS_PERIOD ? 1 : -1);
-      try {
-        adjacentSummary = await sendLunchMoneyRequest('/summary', summaryParams(adjacentSeed, false));
-        if (!adjacentSummary || adjacentSummary.aligned === false) adjacentSummary = null;
-      } catch (e) {
-        adjacentSummary = null;
-      }
-    }
+    const adjacentSummary = periodEnded ? await fetchAdjacentSummary(range, settings) : null;
     const leftover = computeLeftover(summary, categories, adjacentSummary, periodEnded);
     // A 200 with an unexpected shape yields no leftover; treat it as a failed
     // fetch so getAllData falls back to the last good cache instead of caching
@@ -1364,6 +1368,12 @@ function budgetGrouping(entries, info) {
   return { groupedBudgeted, groupHasBudgetedChildren };
 }
 
+// This period's realized activity for one summary entry: the two activity
+// columns the leftover math treats as spending, with a missing column as zero.
+function entryActivity(totals) {
+  return (totals.other_activity || 0) + (totals.recurring_activity || 0);
+}
+
 // A category carries funds forward when its available balance exceeds what
 // this period's budget and activity alone would leave. /categories does not
 // expose per-category rollover settings, so the selected and adjacent-period
@@ -1378,7 +1388,7 @@ function carryoverIds(summary, adjacentSummary) {
     for (const entry of source.categories) {
       const totals = entry && entry.totals;
       if (!totals || totals.budgeted == null || totals.available == null) continue;
-      const activity = (totals.other_activity || 0) + (totals.recurring_activity || 0);
+      const activity = entryActivity(totals);
       rows[entry.category_id] = {
         carries: totals.available > totals.budgeted - activity + 0.02,
         hasPositiveBalance: totals.available > 0.02
@@ -1413,26 +1423,25 @@ function carryoverIds(summary, adjacentSummary) {
 // activity, available, contribution }. The category name comes from the
 // indexed names map. `available` comes straight from the API — present
 // (possibly null for unbudgeted categories) in aligned responses, absent in
-// non-aligned ones — and is normalized to null so the contribution ternary
-// below never sees undefined. A budgeted category contributes its activity
-// (so unspent budget stays out of outflow and remains leftover), plus any
-// overspend when available is negative; if availability is missing, fall back
-// to its budget. The exception is a category that rolls over to itself, either
-// through explicit metadata or an observed carryover: its unspent budget is
-// retained for that category, so it keeps the budget-based contribution. An
-// unbudgeted category contributes its activity. Until the period has ended,
-// every budgeted row uses the budget-based contribution: underspend has not
-// been released yet.
+// non-aligned ones — and is normalized to null so the contribution logic never
+// sees undefined. An unbudgeted category contributes its activity. A budgeted
+// category also contributes its activity once the period has ended, so unspent
+// budget stays out of outflow and remains leftover; the exception is a
+// category that rolls over to itself — through explicit metadata or an observed
+// carryover — which keeps the budget-based contribution so its unspent budget
+// is retained. A budget-based row contributes its budget, plus any overspend
+// when available is negative; without an availability figure it falls back to
+// the plain budget. Until the period has ended every budgeted row stays
+// budget-based, because underspend has not been released yet.
 function shapeBudgetRow(entry, names, category = {}, carriesOver = false, addBackUnderspend = true) {
   const initialBudget = entry.totals.budgeted;
-  const activity = (entry.totals.other_activity || 0) + (entry.totals.recurring_activity || 0);
+  const activity = entryActivity(entry.totals);
   const available = entry.totals.available != null ? entry.totals.available : null;
-  const rollsOver = !addBackUnderspend || carriesOver || category.rolloverOption === 'same category';
-  const contribution = initialBudget == null
-    ? activity
-    : (rollsOver
-      ? (available == null || available >= 0 ? initialBudget : initialBudget - available)
-      : activity);
+  const budgetBased = !addBackUnderspend || carriesOver || category.rolloverOption === 'same category';
+  let contribution = activity;
+  if (initialBudget != null && budgetBased) {
+    contribution = available != null && available < 0 ? initialBudget - available : initialBudget;
+  }
   return {
     name: names[entry.category_id] || entry.category_id,
     initialBudget,
@@ -1519,18 +1528,18 @@ function incomeInflow(summary, categories) {
   }, 0);
 }
 
-// Money in this period minus what was actually spent in it. Inflow is the
-// general pool Lunch Money calls "budgetable": the period's income — the
-// per-category max of expected vs realized (incomeInflow) — plus the rollover
-// pool balance carried into it. Outflow counts rollover categories at their
-// committed budget (plus overspend) and non-rollover categories at their
-// actual activity, plus the uncategorized spend that lives outside all rows:
-// non-rollover underspending stays leftover while carried funds do not, and
-// non-budget spending still shrinks it. An optional adjacent-period summary
-// improves rollover detection, and `addBackUnderspend` is false until the
-// period has ended. Returns null when either response lacks the arrays the math
-// depends on, so a malformed 200 falls back to the last good cache instead of
-// caching an empty result.
+// Money in this period minus what it commits to spend. Inflow is the general
+// pool Lunch Money calls "budgetable": the period's income — the per-category
+// max of expected vs realized (incomeInflow) — plus the rollover pool balance
+// carried into it. Outflow counts rollover categories at their committed budget
+// (plus overspend) and non-rollover categories at their actual activity, plus
+// the uncategorized spend that lives outside all rows: non-rollover
+// underspending stays leftover while carried funds do not, and non-budget
+// spending still shrinks it. An optional adjacent-period summary improves
+// rollover detection, and `addBackUnderspend` is false until the period has
+// ended. Returns null when either response lacks the arrays the math depends
+// on, so a malformed 200 falls back to the last good cache instead of caching
+// an empty result.
 function computeLeftover(summary, categories, adjacentSummary, addBackUnderspend = true) {
   if (!summary || !Array.isArray(summary.categories)) {
     return null;

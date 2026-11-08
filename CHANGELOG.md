@@ -4,6 +4,11 @@ All notable changes to this widget. Releases follow the repo's `refs/tags/vN`
 tags; commit messages use conventional prefixes (`fix:`, `feat:`, `refactor:`,
 `style:`, `docs:`).
 
+## v17 — 2026-11-08
+
+- `refactor`: consolidated the per-entry activity sum into `entryActivity`, clarified the budget-based row contribution logic, and extracted the adjacent-period summary probe into `fetchAdjacentSummary`. There are no widget behavior changes since v16.
+- `docs`: `SCRIPT_VERSION` bumped to v17; README install links point at the v17 tag.
+
 ## v16 — 2026-11-06
 
 - `fix`: non-rollover category underspend returns to leftover only after the period ends; while a period is in progress, budgeted rows stay budget-based.

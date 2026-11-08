@@ -1,6 +1,6 @@
 ---
 name: data-layer
-description: Use when working with the widget's API and cache layer in index.js — sendLunchMoneyRequest, lunchMoneyLeftoverInfo, getAllData, readCache, writeCache, sweepWidgetStorage, fetchUnreviewedTransactions, fetchDeletePendingTransactions, carryForwardSideList, sideListUpdatedAt, the cache TTL, or the mock API (https://mock.lunchmoney.dev/v2). Also use when a fetch fails, a widget shows stale or missing data, the unreviewed list or the Delete Pending badge goes wrong, or a release must verify against the Mock API.
+description: Use when working with the widget's API and cache layer in index.js — sendLunchMoneyRequest, lunchMoneyLeftoverInfo, fetchAdjacentSummary, getAllData, readCache, writeCache, sweepWidgetStorage, fetchUnreviewedTransactions, fetchDeletePendingTransactions, carryForwardSideList, sideListUpdatedAt, the cache TTL, or the mock API (https://mock.lunchmoney.dev/v2). Also use when a fetch fails, a widget shows stale or missing data, the unreviewed list or the Delete Pending badge goes wrong, or a release must verify against the Mock API.
 ---
 
 # Data Layer

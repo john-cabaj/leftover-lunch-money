@@ -2,7 +2,7 @@
 //
 // Usage:
 //   node tools/check-release.mjs            # audit the newest tag
-//   node tools/check-release.mjs --tag v15  # check a candidate release
+//   node tools/check-release.mjs --tag v17  # check a candidate release
 //
 // The checks:
 //   - the script's SCRIPT_VERSION equals the release tag it ships as

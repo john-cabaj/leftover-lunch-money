@@ -50,7 +50,7 @@ Period resolution rules — `/budgets/settings` (anchor, quantity, granularity, 
 
 ## Data Layer and Cache
 
-Request, cache, and storage rules — a non-2xx or malformed response is a *failed* fetch (never cached as data), the stale-copy fallback, the side-list carry-forward (a failed pull keeps the previous value and its original timestamp), the per-period cache files, and the storage sweep — live in the `data-layer` skill; load it before touching `sendLunchMoneyRequest`, `lunchMoneyLeftoverInfo`, `getAllData`, `readCache`, `writeCache`, `sweepWidgetStorage`, `carryForwardSideList`, or the Mock API's behavior.
+Request, cache, and storage rules — a non-2xx or malformed response is a *failed* fetch (never cached as data), the stale-copy fallback, the side-list carry-forward (a failed pull keeps the previous value and its original timestamp), the per-period cache files, and the storage sweep — live in the `data-layer` skill; load it before touching `sendLunchMoneyRequest`, `lunchMoneyLeftoverInfo`, `fetchAdjacentSummary`, `getAllData`, `readCache`, `writeCache`, `sweepWidgetStorage`, `carryForwardSideList`, or the Mock API's behavior.
 
 ## Tap Navigation
 
